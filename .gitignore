@@ -1,0 +1,7 @@
+__pycache__/
+*.tflite
+/out/
+.gradle/
+build/
+local.properties
+*.apk
