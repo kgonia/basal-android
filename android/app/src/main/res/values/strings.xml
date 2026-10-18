@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">basal</string>
-    <string name="subtitle">Calibrated decisions, offline on your phone</string>
+    <string name="app_name">basal LiteRT</string>
+    <string name="subtitle">Unofficial port · calibrated decisions, offline</string>
     <string name="about">About</string>
     <string name="model">Model</string>
     <string name="model_missing">Not downloaded yet</string>

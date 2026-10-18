@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="subtitle">Skalibrowane decyzje, offline na telefonie</string>
+    <string name="subtitle">Nieoficjalny port · skalibrowane decyzje offline</string>
     <string name="about">O aplikacji</string>
     <string name="model">Model</string>
     <string name="model_missing">Jeszcze nie pobrany</string>

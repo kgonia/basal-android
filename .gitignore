@@ -5,3 +5,5 @@ __pycache__/
 build/
 local.properties
 *.apk
+# Qualcomm QNN runtime, copied from the QAIRT SDK (scripts/fetch-qnn-libs.sh); redistribution terms to check
+android/app/src/main/jniLibs/

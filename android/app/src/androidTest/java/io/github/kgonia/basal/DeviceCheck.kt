@@ -4,7 +4,6 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.ai.edge.litert.Accelerator
-import com.google.ai.edge.litert.CompiledModel
 import org.json.JSONObject
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,14 +28,13 @@ class DeviceCheck {
         val modelId = args.getString("model", "basal-2.0-mini")
         val accel = Accelerator.valueOf(args.getString("accel", "GPU"))
         val n = args.getString("n", "0").toInt()
-        val precision = args.getString("precision")?.let { CompiledModel.GpuOptions.Precision.valueOf(it) }
         val base = ctx.getExternalFilesDir(null)!!
         val items = File(base, "check/items_ids.jsonl").readLines().filter { it.isNotBlank() }.let { if (n > 0) it.take(n) else it }
-        val out = File(base, "check/${modelId}_$accel${precision?.let { "_$it" } ?: ""}.jsonl")
+        val out = File(base, "check/${modelId}_$accel.jsonl")
 
         val t0 = System.nanoTime()
         val threads = args.getString("threads")?.toInt()
-        val engine = Engine.open(File(base, "models/$modelId"), accel, ctx.cacheDir, precision, threads)
+        val engine = Engine.open(File(base, "models/$modelId"), accel, ctx.cacheDir, ctx.applicationInfo.nativeLibraryDir, threads)
         val loadMs = (System.nanoTime() - t0) / 1_000_000
         Log.i(TAG, "$modelId on $accel: loaded in $loadMs ms")
         engine.use { e ->
