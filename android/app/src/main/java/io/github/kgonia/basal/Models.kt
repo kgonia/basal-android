@@ -54,6 +54,14 @@ class ModelStore(private val context: Context) {
 
     fun markNpuFailed(m: CatalogModel) = prefs.edit().putBoolean("npu_failed.${m.id}", true).apply()
 
+    /** The NPU self-test runs once per downloaded variant: its key names the files and their sizes. */
+    private fun testKey(m: CatalogModel, variant: String) =
+        "npu_ok.${m.id}." + manifest(m)?.let { Engine.files(it, variant).joinToString(",") { (n, s) -> "$n:$s" } }
+
+    fun npuPassed(m: CatalogModel, variant: String) = prefs.getBoolean(testKey(m, variant), false)
+
+    fun markNpuPassed(m: CatalogModel, variant: String) = prefs.edit().putBoolean(testKey(m, variant), true).apply()
+
     /** The model's litert.json on Hugging Face (a network call): its variants, files and sizes. */
     fun fetchManifest(m: CatalogModel): JSONObject {
         val c = URL(m.url("litert.json")).openConnection() as HttpURLConnection

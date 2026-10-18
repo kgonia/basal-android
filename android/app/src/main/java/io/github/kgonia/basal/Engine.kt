@@ -89,18 +89,26 @@ class Engine private constructor(
     }
 
     /**
-     * Runs litert.json's "selftest" prompt and compares the logits with the reference ones: an NPU variant compiled
-     * for a SoC nobody tested may load and still compute garbage. Null when it passes, else what went wrong.
+     * Runs litert.json's "selftest" prompts, one per language and bucket so that every signature runs, and compares
+     * the logits with the reference ones: an NPU file compiled for a chip nobody tested may load and still compute
+     * nonsense. Null when all pass, else what went wrong.
      */
     fun selfTest(meta: JSONObject): String? {
-        val t = meta.optJSONObject("selftest") ?: return null
-        val ids = t.getJSONArray("ids").let { a -> IntArray(a.length()) { a.getInt(it) } }
-        val want = t.getJSONArray("logits").let { a -> DoubleArray(a.length()) { a.getDouble(it) } }
-        val got = codeLogits(ids)
-        val diff = want.indices.maxOf { abs(got[it] - want[it]) }
-        val same = want.indices.maxBy { want[it] } == want.indices.maxBy { got[it].toDouble() }
-        return if (same && diff <= t.optDouble("tolerance", 1.0)) null
-               else String.format(Locale.ROOT, "logits differ by up to %.2f from the reference", diff)
+        val cases = meta.optJSONArray("selftest") ?: return null
+        for (c in 0 until cases.length()) {
+            val t = cases.getJSONObject(c)
+            val ids = t.getJSONArray("ids").let { a -> IntArray(a.length()) { a.getInt(it) } }
+            if (ids.size > maxTokens) continue
+            val want = t.getJSONArray("logits").let { a -> DoubleArray(a.length()) { a.getDouble(it) } }
+            val got = codeLogits(ids)
+            val diff = want.indices.maxOf { abs(got[it] - want[it]) }
+            val same = want.indices.maxBy { want[it] } == want.indices.maxBy { got[it].toDouble() }
+            if (!same || diff > t.optDouble("tolerance", 1.0)) {
+                return String.format(Locale.ROOT, "%s, %d tokens: logits differ by up to %.2f from the reference",
+                                     t.optString("lang"), ids.size, diff)
+            }
+        }
+        return null
     }
 
     @Synchronized

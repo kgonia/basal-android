@@ -184,13 +184,14 @@ private fun App() {
                 runCatching {
                     val e = Engine.open(store.dir(model), variant, context.cacheDir, context.applicationInfo.nativeLibraryDir)
                     // an NPU file for a chip nobody tested may run and compute nonsense: compare with the reference
-                    val failed = if (variant == ModelStore.CPU) null
+                    val failed = if (variant == ModelStore.CPU || store.npuPassed(model, variant)) null
                                  else runCatching { e.selfTest(store.manifest(model)!!) }.getOrElse { it.message ?: it.toString() }
                     if (failed != null) {
                         e.close()
                         store.markNpuFailed(model)
                         throw NpuFailed(failed)
                     }
+                    if (variant != ModelStore.CPU) store.markNpuPassed(model, variant)
                     e
                 }.map { it to (System.nanoTime() - t0) / 1_000_000 }
             }

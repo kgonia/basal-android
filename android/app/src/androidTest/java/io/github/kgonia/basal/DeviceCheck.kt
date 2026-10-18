@@ -46,7 +46,8 @@ class DeviceCheck {
                     if (ids.size > e.maxTokens) return@forEachIndexed
                     val k = it.getJSONArray("keys").length()
                     val t = System.nanoTime()
-                    val logits = e.codeLogits(ids)
+                    // longer than the variant's buckets once its prefix is taken off
+                    val logits = try { e.codeLogits(ids) } catch (_: IllegalArgumentException) { return@forEachIndexed }
                     val ms = (System.nanoTime() - t) / 1_000_000
                     total += ms
                     it.remove("ids")
