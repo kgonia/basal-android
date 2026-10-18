@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">basal LiteRT</string>
+    <string name="tagline">Typed decisions in Polish and English, on the phone and offline: the model returns a calibrated probability for each option you give.</string>
+    <string name="about">About</string>
+    <string name="download">Download %1$s</string>
+    <string name="downloading">Downloading: %1$.0f of %2$.0f MB</string>
+    <string name="download_failed">The download failed. Check the connection and try again.</string>
+    <string name="checking">Checking the model files…</string>
+    <string name="cancel">Cancel</string>
+    <string name="delete">Delete</string>
+    <string name="model_ready">Model downloaded.</string>
+    <string name="loading">Loading the model (the first GPU load compiles it and takes longer)…</string>
+    <string name="loaded">Loaded on %1$s in %2$.1f s.</string>
+    <string name="load_failed">Could not load the model: %1$s</string>
+    <string name="examples">Examples</string>
+    <string name="state">State (a message, a document, JSON…)</string>
+    <string name="type_choice">Choice</string>
+    <string name="type_noul">Yes / no</string>
+    <string name="type_score">Score</string>
+    <string name="type_multi">Labels</string>
+    <string name="question">Question</string>
+    <string name="options_hint">Options, one per line (key: description)</string>
+    <string name="levels_hint">Levels, lowest first, one per line</string>
+    <string name="hide_keys">Show the model the descriptions only (as the calibration was fitted)</string>
+    <string name="ask">Decide</string>
+    <string name="answer_choice">%1$s (%2$s)</string>
+    <string name="answer_noul">P(yes) = %1$s</string>
+    <string name="answer_score">Score %1$.2f (most likely: %2$s)</string>
+    <string name="answer_multi">Labels: %1$s</string>
+    <string name="timing">%1$d ms, %2$d prompt tokens</string>
+    <string name="licence_title">Download %1$s</string>
+    <string name="licence_text">This is an unofficial LiteRT port of %1$s by Remigiusz Kinas, fine-tuned from Bielik (SpeakLeash and ACK Cyfronet AGH). The model is licensed under Apache-2.0.\n\nThe files come from huggingface.co/%2$s. Use Wi-Fi: the model is large.\n\nThe model picks among the options you give and says how sure it is. It does not know facts that are not in the state. Decisions with serious consequences for people need a review by a person.</string>
+    <string name="accept_download">Accept and download</string>
+    <string name="about_text">basal LiteRT %1$s\n\nAn unofficial Android app for the basal-2.0 typed-decision models, run with Google LiteRT on the phone\'s GPU or CPU. Nothing you type leaves the phone.\n\nModels: basal-2.0 by Remigiusz Kinas (github.com/rkinas/basal), Apache-2.0, fine-tuned from Bielik v3 (SpeakLeash, ACK Cyfronet AGH), Apache-2.0. Not affiliated with or endorsed by their authors.\n\nRuntime: LiteRT (Google), Apache-2.0. App: Jetpack Compose, AndroidX, Kotlin, Apache-2.0.\n\nSource code and the conversion scripts: github.com/kgonia/basal-android</string>
+</resources>

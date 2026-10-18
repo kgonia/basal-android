@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tagline">Decyzje na pytania o tekst po polsku i angielsku, na telefonie i bez sieci: model podaje skalibrowane prawdopodobieństwo każdej opcji, którą mu dasz.</string>
+    <string name="about">O aplikacji</string>
+    <string name="download">Pobierz %1$s</string>
+    <string name="downloading">Pobieranie: %1$.0f z %2$.0f MB</string>
+    <string name="download_failed">Pobieranie się nie udało. Sprawdź połączenie i spróbuj ponownie.</string>
+    <string name="checking">Sprawdzam pliki modelu…</string>
+    <string name="cancel">Anuluj</string>
+    <string name="delete">Usuń</string>
+    <string name="model_ready">Model pobrany.</string>
+    <string name="loading">Ładuję model (pierwsze ładowanie na GPU kompiluje go i trwa dłużej)…</string>
+    <string name="loaded">Załadowany na %1$s w %2$.1f s.</string>
+    <string name="load_failed">Nie udało się załadować modelu: %1$s</string>
+    <string name="examples">Przykłady</string>
+    <string name="state">Stan (wiadomość, dokument, JSON…)</string>
+    <string name="type_choice">Wybór</string>
+    <string name="type_noul">Tak / nie</string>
+    <string name="type_score">Skala</string>
+    <string name="type_multi">Etykiety</string>
+    <string name="question">Pytanie</string>
+    <string name="options_hint">Opcje, jedna w linii (klucz: opis)</string>
+    <string name="levels_hint">Poziomy od najniższego, jeden w linii</string>
+    <string name="hide_keys">Pokaż modelowi tylko opisy (tak dopasowano kalibrację)</string>
+    <string name="ask">Zdecyduj</string>
+    <string name="answer_noul">P(tak) = %1$s</string>
+    <string name="answer_score">Wynik %1$.2f (najbardziej prawdopodobny: %2$s)</string>
+    <string name="answer_multi">Etykiety: %1$s</string>
+    <string name="timing">%1$d ms, %2$d tokenów promptu</string>
+    <string name="licence_title">Pobierz %1$s</string>
+    <string name="licence_text">To nieoficjalny port LiteRT modelu %1$s autorstwa Remigiusza Kinasa, dostrojonego z Bielika (SpeakLeash i ACK Cyfronet AGH). Model jest na licencji Apache-2.0.\n\nPliki pochodzą z huggingface.co/%2$s. Użyj Wi-Fi: model jest duży.\n\nModel wybiera spośród podanych opcji i mówi, jak jest pewny. Nie zna faktów, których nie ma w stanie. Decyzje o poważnych skutkach dla ludzi wymagają sprawdzenia przez człowieka.</string>
+    <string name="accept_download">Akceptuję i pobieram</string>
+    <string name="about_text">basal LiteRT %1$s\n\nNieoficjalna aplikacja na Androida dla modeli decyzyjnych basal-2.0, uruchamianych przez Google LiteRT na GPU lub CPU telefonu. Nic, co wpiszesz, nie opuszcza telefonu.\n\nModele: basal-2.0, autor Remigiusz Kinas (github.com/rkinas/basal), Apache-2.0, dostrojone z Bielika v3 (SpeakLeash, ACK Cyfronet AGH), Apache-2.0. Aplikacja nie jest powiązana z ich autorami ani przez nich zatwierdzona.\n\nŚrodowisko: LiteRT (Google), Apache-2.0. Aplikacja: Jetpack Compose, AndroidX, Kotlin, Apache-2.0.\n\nKod źródłowy i skrypty konwersji: github.com/kgonia/basal-android</string>
+</resources>
