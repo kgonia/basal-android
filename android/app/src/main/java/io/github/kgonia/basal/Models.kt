@@ -19,17 +19,42 @@ val CATALOG = listOf(
 )
 
 /**
- * Model files live in the app's external files dir, models/<id>/ (adb can push them there too). litert.json is
- * written last, so its presence means the download is complete.
+ * Model files live in the app's external files dir, models/<id>/ (adb can push them there too): litert.json, the
+ * tokenizer and calibration, and the files of the variants downloaded. A variant is ready when each of its files has
+ * the size litert.json gives.
  */
 class ModelStore(private val context: Context) {
     private val dm = context.getSystemService(DownloadManager::class.java)
+    private val prefs = context.getSharedPreferences("models", Context.MODE_PRIVATE)
 
     fun dir(m: CatalogModel) = File(context.getExternalFilesDir(null), "models/${m.id}")
 
-    fun isReady(m: CatalogModel) = File(dir(m), "litert.json").isFile
+    fun manifest(m: CatalogModel): JSONObject? =
+        File(dir(m), "litert.json").takeIf { it.isFile }?.let { runCatching { JSONObject(it.readText()) }.getOrNull() }
 
-    /** The model's litert.json on Hugging Face (a network call): its .tflite file name, size and buckets. */
+    private fun complete(m: CatalogModel, meta: JSONObject, variant: String) =
+        meta.getJSONObject("variants").has(variant) &&
+            (Engine.files(meta, variant) + COMMON.map { it to -1L }).all { (name, size) ->
+                File(dir(m), name).let { it.isFile && (size < 0 || it.length() == size) }
+            }
+
+    /** The variant to run: this phone's NPU one if downloaded and not failed its self-test, else the CPU one. */
+    fun readyVariant(m: CatalogModel): String? {
+        val meta = manifest(m) ?: return null
+        val npu = Engine.npuVariant(meta)
+        return when {
+            npu != null && !npuFailed(m) && complete(m, meta, npu) -> npu
+            complete(m, meta, CPU) -> CPU
+            else -> null
+        }
+    }
+
+    /** An NPU variant that loaded but failed its self-test is not used again for this model. */
+    fun npuFailed(m: CatalogModel) = prefs.getBoolean("npu_failed.${m.id}", false)
+
+    fun markNpuFailed(m: CatalogModel) = prefs.edit().putBoolean("npu_failed.${m.id}", true).apply()
+
+    /** The model's litert.json on Hugging Face (a network call): its variants, files and sizes. */
     fun fetchManifest(m: CatalogModel): JSONObject {
         val c = URL(m.url("litert.json")).openConnection() as HttpURLConnection
         c.connectTimeout = 15000
@@ -42,12 +67,24 @@ class ModelStore(private val context: Context) {
         }
     }
 
-    /** Starts the downloads; returns their ids. The manifest is saved once every file has arrived. */
-    fun startDownload(m: CatalogModel, manifest: JSONObject): List<Long> {
+    /**
+     * Bytes on disk once [variant] is running: its files, and for the CPU XNNPACK's packed copy of the weights in the
+     * cache dir (about the size of the model again).
+     */
+    fun diskNeeded(meta: JSONObject, variant: String): Long {
+        val files = Engine.files(meta, variant).sumOf { it.second }
+        return if (variant == CPU) 2 * files else files
+    }
+
+    /** Starts the downloads of [variant]; returns their ids. Files already complete are kept. */
+    fun startDownload(m: CatalogModel, meta: JSONObject, variant: String): List<Long> {
         val d = dir(m).apply { mkdirs() }
-        File(d, "litert.json.pending").writeText(manifest.toString())
-        val files = listOf(manifest.getString("file"), "tokenizer.json", "CALIBRATION.json")
-        return files.map { name ->
+        File(d, "litert.json").writeText(meta.toString())
+        val free = d.usableSpace
+        val need = diskNeeded(meta, variant)
+        check(free > need) { context.getString(R.string.no_space, need / 1e9, free / 1e9) }
+        val files = Engine.files(meta, variant) + COMMON.map { it to -1L }
+        return files.filterNot { (name, size) -> File(d, name).let { it.isFile && it.length() == size } }.map { (name, _) ->
             File(d, name).delete()
             dm.enqueue(DownloadManager.Request(Uri.parse(m.url(name)))
                 .setTitle("${m.id}: $name")
@@ -76,21 +113,19 @@ class ModelStore(private val context: Context) {
         return Progress(done, total, failed, finished == ids.size)
     }
 
-    /** After every download succeeded: checks the model file's size and makes the model ready. */
-    fun finish(m: CatalogModel) {
-        val d = dir(m)
-        val pending = File(d, "litert.json.pending")
-        val manifest = JSONObject(pending.readText())
-        val size = File(d, manifest.getString("file")).length()
-        check(size == manifest.getLong("size")) { "model file has $size bytes, expected ${manifest.getLong("size")}" }
-        pending.renameTo(File(d, "litert.json"))
-    }
-
     fun cancel(ids: List<Long>) {
         if (ids.isNotEmpty()) dm.remove(*ids.toLongArray())
     }
 
     fun delete(m: CatalogModel) {
         dir(m).deleteRecursively()
+        context.cacheDir.listFiles { f -> f.name.endsWith(".xnnpack") && f.name.startsWith(m.id) }?.forEach { it.delete() }
+        prefs.edit().remove("npu_failed.${m.id}").apply()
+    }
+
+    companion object {
+        const val CPU = "cpu"
+        /** The files every variant needs, from the source model unchanged. */
+        val COMMON = listOf("tokenizer.json", "CALIBRATION.json")
     }
 }

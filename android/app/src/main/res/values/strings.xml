@@ -14,7 +14,7 @@
     <string name="delete">Delete</string>
     <string name="loading">Loading the model…</string>
     <string name="thinking">Deciding…</string>
-    <string name="loaded">Loaded in %1$.1f s, runs offline</string>
+    <string name="loaded">Loaded in %1$.1f s · %2$s · offline</string>
     <string name="load_failed">Could not load the model: %1$s</string>
     <string name="examples">Examples</string>
     <string name="state">State: a message, a document, JSON…</string>
@@ -41,5 +41,14 @@
     <string name="licence_title">Download %1$s</string>
     <string name="licence_text">This is an unofficial LiteRT port of %1$s by Remigiusz Kinas, fine-tuned from Bielik (SpeakLeash and ACK Cyfronet AGH). The model is licensed under Apache-2.0.\n\nThe files come from huggingface.co/%2$s. Use Wi-Fi: the model is large.\n\nThe model picks among the options you give and says how sure it is. It does not know facts that are not in the state. Decisions with serious consequences for people need a review by a person.</string>
     <string name="accept_download">Accept and download</string>
-    <string name="about_text">basal LiteRT %1$s\n\nAn unofficial Android app for the basal-2.0 typed-decision models, run with Google LiteRT on the phone\'s CPU. Nothing you type leaves the phone.\n\nModels: basal-2.0 by Remigiusz Kinas (github.com/rkinas/basal), Apache-2.0, fine-tuned from Bielik v3 (SpeakLeash, ACK Cyfronet AGH), Apache-2.0. Not affiliated with or endorsed by their authors.\n\nRuntime: LiteRT (Google), Apache-2.0. App: Jetpack Compose, AndroidX, Kotlin, Apache-2.0.\n\nSource code and the conversion scripts: github.com/kgonia/basal-android</string>
+    <string name="about_text">basal LiteRT %1$s\n\nAn unofficial Android app for the basal-2.0 typed-decision models, run with Google LiteRT on the phone\'s CPU or, on Snapdragon chips with compiled files, its NPU. Nothing you type leaves the phone.\n\nModels: basal-2.0 by Remigiusz Kinas (github.com/rkinas/basal), Apache-2.0, fine-tuned from Bielik v3 (SpeakLeash, ACK Cyfronet AGH), Apache-2.0. Not affiliated with or endorsed by their authors.\n\nRuntime: LiteRT (Google), Apache-2.0. App: Jetpack Compose, AndroidX, Kotlin, Apache-2.0.\n\nSource code and the conversion scripts: github.com/kgonia/basal-android</string>
+    <string name="on_cpu">CPU</string>
+    <string name="on_npu">NPU</string>
+    <string name="runs_on">Runs on</string>
+    <string name="variant_cpu">Processor (CPU): every phone</string>
+    <string name="variant_npu">NPU of this phone (%1$s): faster, less battery</string>
+    <string name="disk_needed">%1$.1f GB on the phone</string>
+    <string name="experimental">experimental, not tested on this chip</string>
+    <string name="no_space">The model needs %1$.1f GB, the phone has %2$.1f GB free.</string>
+    <string name="npu_failed">The NPU did not pass the self-test (%1$s). The app uses the CPU for this model; download the CPU files if they are missing.</string>
 </resources>

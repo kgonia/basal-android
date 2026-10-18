@@ -13,7 +13,7 @@
     <string name="delete">Usuń</string>
     <string name="loading">Ładuję model…</string>
     <string name="thinking">Decyduję…</string>
-    <string name="loaded">Załadowany w %1$.1f s, działa offline</string>
+    <string name="loaded">Wczytany w %1$.1f s · %2$s · offline</string>
     <string name="load_failed">Nie udało się załadować modelu: %1$s</string>
     <string name="examples">Przykłady</string>
     <string name="state">Stan: wiadomość, dokument, JSON…</string>
@@ -40,5 +40,14 @@
     <string name="licence_title">Pobierz %1$s</string>
     <string name="licence_text">To nieoficjalny port LiteRT modelu %1$s autorstwa Remigiusza Kinasa, dostrojonego z Bielika (SpeakLeash i ACK Cyfronet AGH). Model jest na licencji Apache-2.0.\n\nPliki pochodzą z huggingface.co/%2$s. Użyj Wi-Fi: model jest duży.\n\nModel wybiera spośród podanych opcji i mówi, jak jest pewny. Nie zna faktów, których nie ma w stanie. Decyzje o poważnych skutkach dla ludzi wymagają sprawdzenia przez człowieka.</string>
     <string name="accept_download">Akceptuję i pobieram</string>
-    <string name="about_text">basal LiteRT %1$s\n\nNieoficjalna aplikacja na Androida dla modeli decyzyjnych basal-2.0, uruchamianych przez Google LiteRT na procesorze telefonu. Nic, co wpiszesz, nie opuszcza telefonu.\n\nModele: basal-2.0, autor Remigiusz Kinas (github.com/rkinas/basal), Apache-2.0, dostrojone z Bielika v3 (SpeakLeash, ACK Cyfronet AGH), Apache-2.0. Aplikacja nie jest powiązana z ich autorami ani przez nich zatwierdzona.\n\nŚrodowisko: LiteRT (Google), Apache-2.0. Aplikacja: Jetpack Compose, AndroidX, Kotlin, Apache-2.0.\n\nKod źródłowy i skrypty konwersji: github.com/kgonia/basal-android</string>
+    <string name="about_text">basal LiteRT %1$s\n\nNieoficjalna aplikacja na Androida dla modeli decyzyjnych basal-2.0, uruchamianych przez Google LiteRT na procesorze telefonu albo, na układach Snapdragon z przygotowanymi plikami, na jego NPU. Nic, co wpiszesz, nie opuszcza telefonu.\n\nModele: basal-2.0, autor Remigiusz Kinas (github.com/rkinas/basal), Apache-2.0, dostrojone z Bielika v3 (SpeakLeash, ACK Cyfronet AGH), Apache-2.0. Aplikacja nie jest powiązana z ich autorami ani przez nich zatwierdzona.\n\nŚrodowisko: LiteRT (Google), Apache-2.0. Aplikacja: Jetpack Compose, AndroidX, Kotlin, Apache-2.0.\n\nKod źródłowy i skrypty konwersji: github.com/kgonia/basal-android</string>
+    <string name="on_cpu">CPU</string>
+    <string name="on_npu">NPU</string>
+    <string name="runs_on">Uruchamiaj na</string>
+    <string name="variant_cpu">Procesor (CPU): każdy telefon</string>
+    <string name="variant_npu">NPU tego telefonu (%1$s): szybciej, mniej baterii</string>
+    <string name="disk_needed">%1$.1f GB w telefonie</string>
+    <string name="experimental">eksperymentalne, nie testowane na tym układzie</string>
+    <string name="no_space">Model potrzebuje %1$.1f GB, w telefonie jest wolne %2$.1f GB.</string>
+    <string name="npu_failed">NPU nie przeszło testu (%1$s). Aplikacja użyje CPU dla tego modelu; pobierz pliki CPU, jeśli ich brakuje.</string>
 </resources>

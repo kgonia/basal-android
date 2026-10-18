@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -57,6 +58,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -90,17 +92,18 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.google.ai.edge.litert.Accelerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.util.Locale
 
 /** The loaded engine outlives the activity (rotation), like a model held by a process. */
 private object Session {
     var engine: Engine? = null
     var engineModel: String? = null
+    var engineVariant: String? = null
     val downloads = HashMap<String, List<Long>>()
 }
 
@@ -127,11 +130,12 @@ private fun App() {
 
     var modelId by rememberSaveable { mutableStateOf(CATALOG[0].id) }
     val model = CATALOG.first { it.id == modelId }
-    var ready by remember { mutableStateOf(CATALOG.associate { it.id to store.isReady(it) }) }
+    // the variant each model runs, null while none is downloaded
+    var ready by remember { mutableStateOf(CATALOG.associate { it.id to store.readyVariant(it) }) }
     var progress by remember { mutableStateOf<ModelStore.Progress?>(null) }
     var loadedInfo by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var askLicence by remember { mutableStateOf(false) }
+    var offer by remember { mutableStateOf<JSONObject?>(null) }
     var showAbout by remember { mutableStateOf(false) }
 
     val first = EXAMPLES[0]
@@ -158,9 +162,9 @@ private fun App() {
                 } else if (p.finished) {
                     Session.downloads.remove(modelId)
                     progress = null
-                    runCatching { withContext(Dispatchers.IO) { store.finish(model) } }
-                        .onSuccess { ready = ready + (modelId to true) }
-                        .onFailure { say(it.message ?: it.toString()) }
+                    val v = withContext(Dispatchers.IO) { store.readyVariant(model) }
+                    ready = ready + (modelId to v)
+                    if (v == null) say(context.getString(R.string.download_failed))
                 }
             }
             delay(700)
@@ -168,7 +172,8 @@ private fun App() {
     }
 
     fun load(onLoaded: () -> Unit) {
-        if (Session.engineModel == modelId) return onLoaded()
+        val variant = ready[modelId] ?: return
+        if (Session.engineModel == modelId && Session.engineVariant == variant) return onLoaded()
         busy = true
         scope.launch {
             val result = withContext(Dispatchers.Default) {
@@ -176,17 +181,36 @@ private fun App() {
                 Session.engine = null
                 Session.engineModel = null
                 val t0 = System.nanoTime()
-                runCatching { Engine.open(store.dir(model), Accelerator.CPU, context.cacheDir) }
-                    .map { it to (System.nanoTime() - t0) / 1_000_000 }
+                runCatching {
+                    val e = Engine.open(store.dir(model), variant, context.cacheDir, context.applicationInfo.nativeLibraryDir)
+                    // an NPU file for a chip nobody tested may run and compute nonsense: compare with the reference
+                    val failed = if (variant == ModelStore.CPU) null
+                                 else runCatching { e.selfTest(store.manifest(model)!!) }.getOrElse { it.message ?: it.toString() }
+                    if (failed != null) {
+                        e.close()
+                        store.markNpuFailed(model)
+                        throw NpuFailed(failed)
+                    }
+                    e
+                }.map { it to (System.nanoTime() - t0) / 1_000_000 }
             }
             result.onSuccess { (e, ms) ->
                 Session.engine = e
                 Session.engineModel = modelId
-                loadedInfo = context.getString(R.string.loaded, ms / 1000.0)
+                Session.engineVariant = variant
+                loadedInfo = context.getString(R.string.loaded, ms / 1000.0,
+                    context.getString(if (variant == ModelStore.CPU) R.string.on_cpu else R.string.on_npu))
                 onLoaded()
             }.onFailure {
                 busy = false
-                say(context.getString(R.string.load_failed, it.message ?: it.toString()))
+                if (it is NpuFailed || variant != ModelStore.CPU) {
+                    // the next try runs the CPU variant if it is there; else the model card offers to download it
+                    store.markNpuFailed(model)
+                    ready = ready + (modelId to store.readyVariant(model))
+                    say(context.getString(R.string.npu_failed, it.message ?: it.toString()))
+                } else {
+                    say(context.getString(R.string.load_failed, it.message ?: it.toString()))
+                }
             }
         }
     }
@@ -235,7 +259,7 @@ private fun App() {
                 Box(Modifier.navigationBarsPadding().imePadding().padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Button(
                         onClick = { ask() },
-                        enabled = !busy && ready[modelId] == true,
+                        enabled = !busy && ready[modelId] != null,
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         contentPadding = PaddingValues(horizontal = 24.dp),
                     ) {
@@ -247,7 +271,7 @@ private fun App() {
                         } else {
                             Icon(Icons.Outlined.PlayArrow, null)
                             Spacer(Modifier.width(8.dp))
-                            Text(stringResource(if (ready[modelId] == true) R.string.ask else R.string.ask_needs_model),
+                            Text(stringResource(if (ready[modelId] != null) R.string.ask else R.string.ask_needs_model),
                                 style = MaterialTheme.typography.titleMedium)
                         }
                     }
@@ -262,18 +286,26 @@ private fun App() {
             ModelCard(
                 modelId = modelId,
                 onModel = { modelId = it; answer = null },
-                ready = ready[modelId] == true,
+                ready = ready[modelId] != null,
                 downloading = Session.downloads[modelId] != null,
                 progress = progress,
                 loadedInfo = loadedInfo.takeIf { Session.engineModel == modelId },
-                onDownload = { askLicence = true },
+                onDownload = {
+                    busy = true
+                    scope.launch {
+                        withContext(Dispatchers.IO) { runCatching { store.fetchManifest(model) } }
+                            .onSuccess { offer = it }
+                            .onFailure { say(it.message ?: it.toString()) }
+                        busy = false
+                    }
+                },
                 onCancel = { Session.downloads.remove(modelId)?.let { store.cancel(it) }; progress = null },
                 onDelete = {
                     if (Session.engineModel == modelId) {
-                        Session.engine?.close(); Session.engine = null; Session.engineModel = null
+                        Session.engine?.close(); Session.engine = null; Session.engineModel = null; Session.engineVariant = null
                     }
                     store.delete(model)
-                    ready = ready + (modelId to false)
+                    ready = ready + (modelId to null)
                     answer = null
                 },
                 enabled = !busy,
@@ -310,25 +342,21 @@ private fun App() {
         }
     }
 
-    if (askLicence) AlertDialog(
-        onDismissRequest = { askLicence = false },
-        icon = { Icon(Icons.Outlined.Download, null) },
-        title = { Text(stringResource(R.string.licence_title, model.id)) },
-        text = { Text(stringResource(R.string.licence_text, model.source, model.repo)) },
-        confirmButton = {
-            TextButton(onClick = {
-                askLicence = false
-                busy = true
-                scope.launch {
-                    withContext(Dispatchers.IO) { runCatching { store.startDownload(model, store.fetchManifest(model)) } }
-                        .onSuccess { Session.downloads[modelId] = it }
-                        .onFailure { say(it.message ?: it.toString()) }
-                    busy = false
-                }
-            }) { Text(stringResource(R.string.accept_download)) }
-        },
-        dismissButton = { TextButton(onClick = { askLicence = false }) { Text(stringResource(R.string.cancel)) } },
-    )
+    offer?.let { meta ->
+        DownloadDialog(model, meta, store, onDismiss = { offer = null }) { variant ->
+            offer = null
+            busy = true
+            scope.launch {
+                withContext(Dispatchers.IO) { runCatching { store.startDownload(model, meta, variant) } }
+                    .onSuccess { ids ->
+                        if (ids.isEmpty()) ready = ready + (modelId to store.readyVariant(model))
+                        else Session.downloads[modelId] = ids
+                    }
+                    .onFailure { say(it.message ?: it.toString()) }
+                busy = false
+            }
+        }
+    }
     if (showAbout) ModalBottomSheet(onDismissRequest = { showAbout = false }, sheetState = rememberModalBottomSheetState()) {
         Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp).verticalScroll(rememberScrollState()),
                verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -338,6 +366,45 @@ private fun App() {
             }
         }
     }
+}
+
+private class NpuFailed(message: String) : Exception(message)
+
+/** The licence note and the choice of variant: this phone's NPU if there are files for its chip, or the CPU. */
+@Composable
+private fun DownloadDialog(model: CatalogModel, meta: JSONObject, store: ModelStore, onDismiss: () -> Unit,
+                           onDownload: (String) -> Unit) {
+    val npu = remember(meta) { Engine.npuVariant(meta)?.takeUnless { store.npuFailed(model) } }
+    var variant by remember(meta) { mutableStateOf(npu ?: ModelStore.CPU) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.Download, null) },
+        title = { Text(stringResource(R.string.licence_title, model.id)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.licence_text, model.source, model.repo))
+                SectionLabel(stringResource(R.string.runs_on))
+                listOfNotNull(npu, ModelStore.CPU).forEach { v ->
+                    val tested = v == ModelStore.CPU || meta.getJSONObject("variants").getJSONObject(v).optBoolean("tested")
+                    Row(Modifier.fillMaxWidth().selectable(selected = variant == v, onClick = { variant = v }),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = variant == v, onClick = null)
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(if (v == ModelStore.CPU) stringResource(R.string.variant_cpu)
+                                 else stringResource(R.string.variant_npu, Engine.soc ?: ""),
+                                 style = MaterialTheme.typography.bodyMedium)
+                            Text(stringResource(R.string.disk_needed, store.diskNeeded(meta, v) / 1e9) +
+                                 (if (tested) "" else " · " + stringResource(R.string.experimental)),
+                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onDownload(variant) }) { Text(stringResource(R.string.accept_download)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
 }
 
 @Composable

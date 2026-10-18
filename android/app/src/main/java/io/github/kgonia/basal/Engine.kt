@@ -6,16 +6,20 @@ import com.google.ai.edge.litert.Accelerator
 import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.Locale
+import kotlin.math.abs
 
 /**
  * A downloaded model directory: litert.json (written by convert/publish.py), the .tflite files, tokenizer.json and
  * CALIBRATION.json. One forward pass per prompt; the logits of the option codes at the last token are the decision.
  *
- * A model is one file or several parts run in a row (convert/export.py --part): the first takes `tokens`, each
- * next one the previous part's `hidden`, and the last one also `last` and returns `logits`.
+ * litert.json lists variants: "cpu" for every phone, "npu-<SoC>" compiled ahead of time for one Qualcomm SoC. A
+ * variant is one file or several parts run in a row (convert/export.py --blocks): the first takes `tokens`, each
+ * next one the previous part's `hidden`, and the last one also `last` and returns `logits`. An NPU variant may hold
+ * the keys and values of the prompt start every prompt of a language shares ("prefix": token ids per language):
+ * its signatures are <lang>_p<L> and take only the tokens after that prefix.
  */
 class Engine private constructor(
     private val parts: List<CompiledModel>,
@@ -23,6 +27,7 @@ class Engine private constructor(
     private val tokenizer: Tokenizer,
     private val calibration: Calibration,
     private val buckets: List<Int>,
+    private val prefixes: Map<String, IntArray>,
     private val padId: Int,
 ) : AutoCloseable {
     data class Answer(
@@ -44,13 +49,13 @@ class Engine private constructor(
 
     private class Buffers(val inputs: Map<String, TensorBuffer>, val outputs: Map<String, TensorBuffer>)
 
-    // per bucket length, per part
-    private val buffers = HashMap<Int, List<Buffers>>()
+    // per signature, per part
+    private val buffers = HashMap<String, List<Buffers>>()
 
-    val maxTokens get() = buckets.last()
+    /** The longest prompt the model takes, in tokens. */
+    val maxTokens get() = buckets.last() + (prefixes.values.minOfOrNull { it.size } ?: 0)
 
-    private fun buffersFor(len: Int): List<Buffers> = buffers.getOrPut(len) {
-        val sig = "p$len"
+    private fun buffersFor(sig: String): List<Buffers> = buffers.getOrPut(sig) {
         parts.mapIndexed { i, m ->
             val ins = buildList {
                 add(if (i == 0) "tokens" else "hidden")
@@ -65,17 +70,37 @@ class Engine private constructor(
     /** The 255 code logits at the last token of [ids]. */
     @Synchronized
     fun codeLogits(ids: IntArray): FloatArray {
-        val len = buckets.firstOrNull { it >= ids.size }
+        // the cached prompt start of the prompt's language, if the variant has one
+        val (lang, prefix) = if (prefixes.isEmpty()) null to IntArray(0) else prefixes.entries
+            .firstOrNull { (_, p) -> ids.size > p.size && p.indices.all { ids[it] == p[it] } }?.toPair()
+            ?: throw IllegalArgumentException("The prompt does not start like a basal prompt of a known language.")
+        val n = ids.size - prefix.size
+        val len = buckets.firstOrNull { it >= n }
             ?: throw IllegalArgumentException("The prompt has ${ids.size} tokens; this model takes at most $maxTokens.")
-        val sig = "p$len"
-        val bufs = buffersFor(len)
-        bufs[0].inputs.getValue("tokens").writeInt(IntArray(len) { if (it < ids.size) ids[it] else padId })
-        bufs.last().inputs.getValue("last").writeInt(intArrayOf(ids.size - 1))
+        val sig = if (lang == null) "p$len" else "${lang}_p$len"
+        val bufs = buffersFor(sig)
+        bufs[0].inputs.getValue("tokens").writeInt(IntArray(len) { if (it < n) ids[prefix.size + it] else padId })
+        bufs.last().inputs.getValue("last").writeInt(intArrayOf(n - 1))
         for (i in parts.indices) {
             if (i > 0) bufs[i].inputs.getValue("hidden").writeFloat(bufs[i - 1].outputs.getValue("hidden").readFloat())
             parts[i].run(bufs[i].inputs, bufs[i].outputs, sig)
         }
         return bufs.last().outputs.getValue("logits").readFloat()
+    }
+
+    /**
+     * Runs litert.json's "selftest" prompt and compares the logits with the reference ones: an NPU variant compiled
+     * for a SoC nobody tested may load and still compute garbage. Null when it passes, else what went wrong.
+     */
+    fun selfTest(meta: JSONObject): String? {
+        val t = meta.optJSONObject("selftest") ?: return null
+        val ids = t.getJSONArray("ids").let { a -> IntArray(a.length()) { a.getInt(it) } }
+        val want = t.getJSONArray("logits").let { a -> DoubleArray(a.length()) { a.getDouble(it) } }
+        val got = codeLogits(ids)
+        val diff = want.indices.maxOf { abs(got[it] - want[it]) }
+        val same = want.indices.maxBy { want[it] } == want.indices.maxBy { got[it].toDouble() }
+        return if (same && diff <= t.optDouble("tolerance", 1.0)) null
+               else String.format(Locale.ROOT, "logits differ by up to %.2f from the reference", diff)
     }
 
     @Synchronized
@@ -107,36 +132,39 @@ class Engine private constructor(
         /** The SoC the NPU files are compiled for, e.g. "SM8550"; null before Android 12. */
         val soc: String? get() = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else null
 
-        /** The files of the model for [accelerator]: litert.json's "file" (CPU), or "npu"'s entry for this SoC. */
-        fun files(meta: JSONObject, accelerator: Accelerator): List<String>? {
-            val v = if (accelerator == Accelerator.NPU) meta.optJSONObject("npu")?.opt(soc ?: "") else meta.opt("file")
-            return when (v) {
-                is String -> listOf(v)
-                is JSONArray -> (0 until v.length()).map { v.getString(it) }
-                else -> null
-            }
+        /** The NPU variant's name for this phone, or null when litert.json has none. */
+        fun npuVariant(meta: JSONObject): String? =
+            soc?.let { "npu-$it" }?.takeIf { meta.getJSONObject("variants").has(it) }
+
+        /** A variant's files: name and size in bytes. */
+        fun files(meta: JSONObject, variant: String): List<Pair<String, Long>> {
+            val a = meta.getJSONObject("variants").getJSONObject(variant).getJSONArray("files")
+            return (0 until a.length()).map { a.getJSONObject(it).let { f -> f.getString("name") to f.getLong("size") } }
         }
 
         /**
          * [cacheDir] keeps XNNPACK's packed weights between runs (CPU). [nativeLibDir] holds LiteRT's Qualcomm
          * dispatch library and the QNN runtime (NPU).
          */
-        fun open(dir: File, accelerator: Accelerator, cacheDir: File, nativeLibDir: String? = null, threads: Int? = null): Engine {
+        fun open(dir: File, variant: String, cacheDir: File, nativeLibDir: String? = null, threads: Int? = null): Engine {
             val meta = JSONObject(File(dir, "litert.json").readText())
             val tokenizer = Tokenizer.load(File(dir, "tokenizer.json").readText())
             // FORMAT2 3.6: every code must be one token of its own
             val codes = Format2.CODES.map { tokenizer.tokenToId(it) }
             require(codes.none { it == null } && codes.toSet().size == codes.size) { "tokenizer fails the code check" }
             val calibration = Calibration(File(dir, "CALIBRATION.json").readText())
-            val b = meta.getJSONArray("buckets")
-            val buckets = (0 until b.length()).map { b.getInt(it) }.sorted()
-            val names = files(meta, accelerator) ?: throw IllegalArgumentException("no ${accelerator.name} files for ${soc ?: "this phone"}")
-            val env = if (accelerator == Accelerator.NPU) {
+            val v = meta.getJSONObject("variants").getJSONObject(variant)
+            val buckets = v.getJSONArray("buckets").let { b -> (0 until b.length()).map { b.getInt(it) }.sorted() }
+            val prefixes = v.optJSONObject("prefix")?.let { p ->
+                p.keys().asSequence().associateWith { lang -> p.getJSONArray(lang).let { a -> IntArray(a.length()) { a.getInt(it) } } }
+            } ?: emptyMap()
+            val npu = variant.startsWith("npu-")
+            val env = if (npu) {
                 // the Hexagon DSP loads libQnnHtpV*Skel.so from this path
                 Os.setenv("ADSP_LIBRARY_PATH", nativeLibDir!!, true)
                 Environment.create(mapOf(Environment.Option.DispatchLibraryDir to nativeLibDir))
             } else null
-            val parts = names.map { name ->
+            val parts = files(meta, variant).map { (name, _) ->
                 val f = File(dir, name)
                 if (env != null) {
                     CompiledModel.create(f.path, CompiledModel.Options(Accelerator.NPU, Accelerator.CPU), env)
@@ -148,7 +176,8 @@ class Engine private constructor(
                     CompiledModel.create(f.path, options)
                 }
             }
-            return Engine(parts, accelerator, tokenizer, calibration, buckets, meta.optInt("pad_id", 2))
+            return Engine(parts, if (npu) Accelerator.NPU else Accelerator.CPU, tokenizer, calibration, buckets, prefixes,
+                          meta.optInt("pad_id", 2))
         }
     }
 }

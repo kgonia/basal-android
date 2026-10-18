@@ -3,7 +3,6 @@ package io.github.kgonia.basal
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.google.ai.edge.litert.Accelerator
 import org.json.JSONObject
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -14,10 +13,10 @@ import java.io.File
  * Needs no screen, so it works on a locked phone:
  *
  *   adb push items_ids.jsonl /sdcard/Android/data/io.github.kgonia.basal/files/check/
- *   adb shell am instrument -w -e model basal-2.0-mini -e accel GPU -e n 300 \
+ *   adb shell am instrument -w -e model basal-2.0-mini -e variant npu-SM8550 -e n 300 \
  *       io.github.kgonia.basal.test/androidx.test.runner.AndroidJUnitRunner
  *
- * Output: files/check/<model>_<accel>.jsonl (gate.py compare reads it) and the load time in logcat (tag basal-check).
+ * Output: files/check/<model>_<variant>.jsonl (gate.py compare reads it) and the load time in logcat (tag basal-check).
  */
 @RunWith(AndroidJUnit4::class)
 class DeviceCheck {
@@ -26,17 +25,17 @@ class DeviceCheck {
         val args = InstrumentationRegistry.getArguments()
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         val modelId = args.getString("model", "basal-2.0-mini")
-        val accel = Accelerator.valueOf(args.getString("accel", "GPU"))
+        val variant = args.getString("variant", "cpu")
         val n = args.getString("n", "0").toInt()
         val base = ctx.getExternalFilesDir(null)!!
         val items = File(base, "check/items_ids.jsonl").readLines().filter { it.isNotBlank() }.let { if (n > 0) it.take(n) else it }
-        val out = File(base, "check/${modelId}_$accel.jsonl")
+        val out = File(base, "check/${modelId}_$variant.jsonl")
 
         val t0 = System.nanoTime()
         val threads = args.getString("threads")?.toInt()
-        val engine = Engine.open(File(base, "models/$modelId"), accel, ctx.cacheDir, ctx.applicationInfo.nativeLibraryDir, threads)
+        val engine = Engine.open(File(base, "models/$modelId"), variant, ctx.cacheDir, ctx.applicationInfo.nativeLibraryDir, threads)
         val loadMs = (System.nanoTime() - t0) / 1_000_000
-        Log.i(TAG, "$modelId on $accel: loaded in $loadMs ms")
+        Log.i(TAG, "$modelId $variant: loaded in $loadMs ms")
         engine.use { e ->
             out.bufferedWriter().use { w ->
                 var total = 0L
