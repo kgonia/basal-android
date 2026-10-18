@@ -133,7 +133,7 @@ private fun App() {
                 Session.engine = null
                 Session.engineModel = null
                 val t0 = System.nanoTime()
-                runCatching { Engine.open(store.dir(model), accel) }.map { it to (System.nanoTime() - t0) / 1_000_000 }
+                runCatching { Engine.open(store.dir(model), accel, context.cacheDir) }.map { it to (System.nanoTime() - t0) / 1_000_000 }
             }
             result.onSuccess { (e, ms) ->
                 Session.engine = e

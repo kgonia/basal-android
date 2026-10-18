@@ -39,7 +39,9 @@ class Engine private constructor(
 
     val maxTokens get() = buckets.last()
 
-    private fun codeLogits(ids: IntArray): FloatArray {
+    /** The 255 code logits at the last token of [ids]. */
+    @Synchronized
+    fun codeLogits(ids: IntArray): FloatArray {
         val len = buckets.firstOrNull { it >= ids.size }
             ?: throw IllegalArgumentException("The prompt has ${ids.size} tokens; this model file takes at most $maxTokens.")
         val sig = "p$len"
@@ -80,7 +82,9 @@ class Engine private constructor(
     }
 
     companion object {
-        fun open(dir: File, accelerator: Accelerator): Engine {
+        /** [cacheDir] keeps XNNPACK's packed weights between runs (CPU). */
+        fun open(dir: File, accelerator: Accelerator, cacheDir: File,
+                 precision: CompiledModel.GpuOptions.Precision? = null, threads: Int? = null): Engine {
             val meta = JSONObject(File(dir, "litert.json").readText())
             val tokenizer = Tokenizer.load(File(dir, "tokenizer.json").readText())
             // FORMAT2 3.6: every code must be one token of its own
@@ -89,7 +93,19 @@ class Engine private constructor(
             val calibration = Calibration(File(dir, "CALIBRATION.json").readText())
             val b = meta.getJSONArray("buckets")
             val buckets = (0 until b.length()).map { b.getInt(it) }.sorted()
-            val model = CompiledModel.create(File(dir, meta.getString("file")).path, CompiledModel.Options(accelerator))
+            // the CPU takes what the GPU delegate cannot run (the embedding lookup of a quantized table)
+            val options = if (accelerator == Accelerator.GPU) CompiledModel.Options(Accelerator.GPU, Accelerator.CPU)
+                          else CompiledModel.Options(accelerator)
+            // Without a weight cache XNNPACK packs the weights once per signature: five copies of the model, and
+            // the low-memory killer stops the app. The file cache is shared by the signatures and kept for next time.
+            val modelFile = File(dir, meta.getString("file"))
+            options.cpuOptions = CompiledModel.CpuOptions(
+                threads, null, File(cacheDir, "${modelFile.name}.${modelFile.length()}.xnnpack").path)
+            // int8 FULLY_CONNECTED weights only run on the GPU with this flag
+            if (accelerator == Accelerator.GPU) {
+                options.gpuOptions = CompiledModel.GpuOptions(precision = precision, allowSrcQuantizedFcConvOps = true)
+            }
+            val model = CompiledModel.create(modelFile.path, options)
             return Engine(model, accelerator, tokenizer, calibration, buckets, meta.optInt("pad_id", 2))
         }
     }
