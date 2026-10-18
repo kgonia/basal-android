@@ -9,12 +9,12 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /** The models the app offers: LiteRT ports of basal-2.0 on Hugging Face (convert/publish.py writes them). */
-data class CatalogModel(val id: String, val repo: String, val params: String, val source: String) {
+data class CatalogModel(val id: String, val repo: String, val label: String, val source: String) {
     fun url(file: String) = "https://huggingface.co/$repo/resolve/main/$file"
 }
 
 val CATALOG = listOf(
-    CatalogModel("basal-2.0-mini", "SearchingMan/basal-2.0-mini-LiteRT", "1.5B", "Remek/basal-2.0-mini"),
+    CatalogModel("basal-2.0-mini", "SearchingMan/basal-2.0-mini-LiteRT", "mini · 1.5B", "Remek/basal-2.0-mini"),
     CatalogModel("basal-2.0-4.5B", "SearchingMan/basal-2.0-4.5B-LiteRT", "4.5B", "Remek/basal-2.0-4.5B"),
 )
 
