@@ -20,6 +20,11 @@ import kotlin.math.abs
  * next one the previous part's `hidden`, and the last one also `last` and returns `logits`. An NPU variant may hold
  * the keys and values of the prompt start every prompt of a language shares ("prefix": token ids per language):
  * its signatures are <lang>_p<L> and take only the tokens after that prefix.
+ *
+ * A chunked NPU variant ("chunk", convert/export.py --chunk) has one signature `chunk` for any prompt length: C
+ * tokens at a time through a cache of T positions per block, which starts with the prefix's keys and values
+ * (shipped as files, float32 [2, blocks, kv heads, P, head dim]). Each part takes the cache of its own blocks,
+ * `pos` (the chunk's first position) and returns the chunk's keys and values, written to the cache at pos.
  */
 class Engine private constructor(
     private val parts: List<CompiledModel>,
@@ -29,7 +34,15 @@ class Engine private constructor(
     private val buckets: List<Int>,
     private val prefixes: Map<String, IntArray>,
     private val padId: Int,
+    private val chunked: Chunked? = null,
 ) : AutoCloseable {
+    /** [blocks]: the parts' first blocks and the block count, e.g. 0, 7, 15, 23, 32. */
+    class Chunked(val length: Int, val context: Int, val blocks: IntArray, val kvHeads: Int, val headDim: Int,
+                  val prefixKv: Map<String, FloatArray>) {
+        /** Per part the keys and values [blocks, kv heads, context, head dim]. */
+        val k = List(blocks.size - 1) { FloatArray((blocks[it + 1] - blocks[it]) * kvHeads * context * headDim) }
+        val v = List(blocks.size - 1) { FloatArray((blocks[it + 1] - blocks[it]) * kvHeads * context * headDim) }
+    }
     data class Answer(
         val question: Format2.Question,
         val keys: List<String>,
@@ -53,18 +66,72 @@ class Engine private constructor(
     private val buffers = HashMap<String, List<Buffers>>()
 
     /** The longest prompt the model takes, in tokens. */
-    val maxTokens get() = buckets.last() + (prefixes.values.minOfOrNull { it.size } ?: 0)
+    val maxTokens get() = chunked?.let { it.context + it.length }
+        ?: (buckets.last() + (prefixes.values.minOfOrNull { it.size } ?: 0))
 
     private fun buffersFor(sig: String): List<Buffers> = buffers.getOrPut(sig) {
         parts.mapIndexed { i, m ->
             val ins = buildList {
                 add(if (i == 0) "tokens" else "hidden")
+                if (chunked != null) addAll(listOf("k_cache", "v_cache", "pos"))
                 if (i == parts.lastIndex) add("last")
             }
-            Buffers(ins.associateWith { m.createInputBuffer(it, sig) },
-                    mapOf(if (i == parts.lastIndex) "logits" to m.createOutputBuffer("logits", sig)
-                          else "hidden" to m.createOutputBuffer("hidden", sig)))
+            val outs = buildList {
+                add(if (i == parts.lastIndex) "logits" else "hidden")
+                if (chunked != null) addAll(listOf("k_new", "v_new"))
+            }
+            Buffers(ins.associateWith { m.createInputBuffer(it, sig) }, outs.associateWith { m.createOutputBuffer(it, sig) })
         }
+    }
+
+    /**
+     * The code logits of a chunked variant: the chunks cover the tokens after the prefix in steps of C, and the last
+     * one is always the prompt's last C tokens, so that no chunk starts past the cache; where it overlaps the one
+     * before, the cache rows from pos on are masked and computed again.
+     */
+    private fun chunkedLogits(c: Chunked, lang: String, ids: IntArray, prefixLen: Int): FloatArray {
+        val (C, T, d, nkv) = listOf(c.length, c.context, c.headDim, c.kvHeads)
+        val all = c.blocks.last()
+        val pre = c.prefixKv.getValue(lang)
+        val p = prefixLen
+        for (i in parts.indices) {
+            val b0 = c.blocks[i]
+            for (b in 0 until c.blocks[i + 1] - b0) for (h in 0 until nkv) {
+                System.arraycopy(pre, ((b0 + b) * nkv + h) * p * d, c.k[i], (b * nkv + h) * T * d, p * d)
+                System.arraycopy(pre, (((all + b0 + b) * nkv) + h) * p * d, c.v[i], (b * nkv + h) * T * d, p * d)
+            }
+        }
+        val rest = ids.size - p
+        val final = maxOf(0, rest - C)
+        val starts = (0 until final step C).toList() + final
+        val bufs = buffersFor("chunk")
+        var logits = FloatArray(0)
+        for (s in starts) {
+            val n = minOf(C, rest - s)
+            val pos = p + s
+            val last = s == final
+            bufs[0].inputs.getValue("tokens").writeInt(IntArray(C) { if (it < n) ids[pos + it] else padId })
+            bufs.last().inputs.getValue("last").writeInt(intArrayOf(n - 1))
+            for (i in parts.indices) {
+                val b = bufs[i]
+                if (i > 0) b.inputs.getValue("hidden").writeFloat(bufs[i - 1].outputs.getValue("hidden").readFloat())
+                b.inputs.getValue("k_cache").writeFloat(c.k[i])
+                b.inputs.getValue("v_cache").writeFloat(c.v[i])
+                b.inputs.getValue("pos").writeInt(intArrayOf(pos))
+                parts[i].run(b.inputs, b.outputs, "chunk")
+                if (last) continue
+                // the chunk's rows into the cache at pos
+                val kn = b.outputs.getValue("k_new").readFloat()
+                val vn = b.outputs.getValue("v_new").readFloat()
+                val w = minOf(n, T - pos)
+                for (bh in 0 until (c.blocks[i + 1] - c.blocks[i]) * nkv) {
+                    System.arraycopy(kn, bh * C * d, c.k[i], (bh * T + pos) * d, w * d)
+                    System.arraycopy(vn, bh * C * d, c.v[i], (bh * T + pos) * d, w * d)
+                }
+            }
+            if (last) logits = bufs.last().outputs.getValue("logits").readFloat()
+        }
+        return logits
     }
 
     /** The 255 code logits at the last token of [ids]. */
@@ -74,6 +141,10 @@ class Engine private constructor(
         val (lang, prefix) = if (prefixes.isEmpty()) null to IntArray(0) else prefixes.entries
             .firstOrNull { (_, p) -> ids.size > p.size && p.indices.all { ids[it] == p[it] } }?.toPair()
             ?: throw IllegalArgumentException("The prompt does not start like a basal prompt of a known language.")
+        if (chunked != null) {
+            require(ids.size <= maxTokens) { "The prompt has ${ids.size} tokens; this model takes at most $maxTokens." }
+            return chunkedLogits(chunked, lang!!, ids, prefix.size)
+        }
         val n = ids.size - prefix.size
         val len = buckets.firstOrNull { it >= n }
             ?: throw IllegalArgumentException("The prompt has ${ids.size} tokens; this model takes at most $maxTokens.")
@@ -162,7 +233,15 @@ class Engine private constructor(
             require(codes.none { it == null } && codes.toSet().size == codes.size) { "tokenizer fails the code check" }
             val calibration = Calibration(File(dir, "CALIBRATION.json").readText())
             val v = meta.getJSONObject("variants").getJSONObject(variant)
-            val buckets = v.getJSONArray("buckets").let { b -> (0 until b.length()).map { b.getInt(it) }.sorted() }
+            val buckets = v.optJSONArray("buckets")?.let { b -> (0 until b.length()).map { b.getInt(it) }.sorted() }
+                ?: emptyList()
+            val chunked = v.optJSONObject("chunk")?.let { c ->
+                val kv = c.getJSONObject("prefix_kv")
+                Chunked(c.getInt("length"), c.getInt("context"),
+                        c.getJSONArray("blocks").let { a -> IntArray(a.length()) { a.getInt(it) } },
+                        c.getInt("kv_heads"), c.getInt("head_dim"),
+                        kv.keys().asSequence().associateWith { lang -> readFloats(File(dir, kv.getString(lang))) })
+            }
             val prefixes = v.optJSONObject("prefix")?.let { p ->
                 p.keys().asSequence().associateWith { lang -> p.getJSONArray(lang).let { a -> IntArray(a.length()) { a.getInt(it) } } }
             } ?: emptyMap()
@@ -172,7 +251,8 @@ class Engine private constructor(
                 Os.setenv("ADSP_LIBRARY_PATH", nativeLibDir!!, true)
                 Environment.create(mapOf(Environment.Option.DispatchLibraryDir to nativeLibDir))
             } else null
-            val parts = files(meta, variant).map { (name, _) ->
+            // the variant's other files are data, e.g. a chunked variant's prefix keys and values
+            val parts = files(meta, variant).filter { it.first.endsWith(".tflite") }.map { (name, _) ->
                 val f = File(dir, name)
                 if (env != null) {
                     CompiledModel.create(f.path, CompiledModel.Options(Accelerator.NPU, Accelerator.CPU), env)
@@ -185,7 +265,13 @@ class Engine private constructor(
                 }
             }
             return Engine(parts, if (npu) Accelerator.NPU else Accelerator.CPU, tokenizer, calibration, buckets, prefixes,
-                          meta.optInt("pad_id", 2))
+                          meta.optInt("pad_id", 2), chunked)
+        }
+
+        /** A file of little-endian float32. */
+        private fun readFloats(f: File): FloatArray {
+            val b = java.nio.ByteBuffer.wrap(f.readBytes()).order(java.nio.ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
+            return FloatArray(b.remaining()).also { b.get(it) }
         }
     }
 }
