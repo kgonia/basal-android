@@ -89,16 +89,22 @@ class Engine private constructor(
      * one is always the prompt's last C tokens, so that no chunk starts past the cache; where it overlaps the one
      * before, the cache rows from pos on are masked and computed again.
      */
+    // the language whose prefix the cache buffers hold; past the prefix they hold rows of an earlier prompt, which
+    // the graph masks (positions from pos on)
+    private var cachedLang: String? = null
+
     private fun chunkedLogits(c: Chunked, lang: String, ids: IntArray, prefixLen: Int): FloatArray {
         val (C, T, d, nkv) = listOf(c.length, c.context, c.headDim, c.kvHeads)
         val all = c.blocks.last()
-        val pre = c.prefixKv.getValue(lang)
         val p = prefixLen
-        for (i in parts.indices) {
-            val b0 = c.blocks[i]
-            for (b in 0 until c.blocks[i + 1] - b0) for (h in 0 until nkv) {
-                System.arraycopy(pre, ((b0 + b) * nkv + h) * p * d, c.k[i], (b * nkv + h) * T * d, p * d)
-                System.arraycopy(pre, (((all + b0 + b) * nkv) + h) * p * d, c.v[i], (b * nkv + h) * T * d, p * d)
+        if (lang != cachedLang) {
+            val pre = c.prefixKv.getValue(lang)
+            for (i in parts.indices) {
+                val b0 = c.blocks[i]
+                for (b in 0 until c.blocks[i + 1] - b0) for (h in 0 until nkv) {
+                    System.arraycopy(pre, ((b0 + b) * nkv + h) * p * d, c.k[i], (b * nkv + h) * T * d, p * d)
+                    System.arraycopy(pre, (((all + b0 + b) * nkv) + h) * p * d, c.v[i], (b * nkv + h) * T * d, p * d)
+                }
             }
         }
         val rest = ids.size - p
@@ -112,11 +118,15 @@ class Engine private constructor(
             val last = s == final
             bufs[0].inputs.getValue("tokens").writeInt(IntArray(C) { if (it < n) ids[pos + it] else padId })
             bufs.last().inputs.getValue("last").writeInt(intArrayOf(n - 1))
+            // the first chunk finds the cache as the previous prompt of the language left it
+            val write = s != starts.first() || lang != cachedLang
             for (i in parts.indices) {
                 val b = bufs[i]
                 if (i > 0) b.inputs.getValue("hidden").writeFloat(bufs[i - 1].outputs.getValue("hidden").readFloat())
-                b.inputs.getValue("k_cache").writeFloat(c.k[i])
-                b.inputs.getValue("v_cache").writeFloat(c.v[i])
+                if (write) {
+                    b.inputs.getValue("k_cache").writeFloat(c.k[i])
+                    b.inputs.getValue("v_cache").writeFloat(c.v[i])
+                }
                 b.inputs.getValue("pos").writeInt(intArrayOf(pos))
                 parts[i].run(b.inputs, b.outputs, "chunk")
                 if (last) continue
@@ -129,6 +139,7 @@ class Engine private constructor(
                     System.arraycopy(vn, bh * C * d, c.v[i], (bh * T + pos) * d, w * d)
                 }
             }
+            cachedLang = lang
             if (last) logits = bufs.last().outputs.getValue("logits").readFloat()
         }
         return logits
