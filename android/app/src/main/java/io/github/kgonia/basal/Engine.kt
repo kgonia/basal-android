@@ -39,7 +39,31 @@ class Engine private constructor(
     private val padId: Int,
     private val chunked: Chunked? = null,
     private val inputQuant: List<Map<String, Quant>> = emptyList(),
+    private val readout: Readout? = null,
 ) : AutoCloseable {
+    /**
+     * The code logits from the hidden state at the last token (the last part's `row`), in the app: the final
+     * RMSNorm and the head (the code rows of lm_head) in fp32, as basal-serve computes them (FORMAT2 3.7), rather
+     * than on the NPU: the 32-layer mini's NPU logits came out ~0.1 times the reference ones.
+     */
+    class Readout(private val norm: FloatArray, private val head: FloatArray, private val eps: Double) {
+        fun logits(row: FloatArray): FloatArray {
+            val h = norm.size
+            var ms = 0.0
+            for (x in row) ms += x.toDouble() * x
+            val r = 1.0 / Math.sqrt(ms / h + eps)
+            val y = DoubleArray(h) { row[it] * r * norm[it] }
+            return FloatArray(head.size / h) { c ->
+                var s = 0.0
+                for (j in 0 until h) s += head[c * h + j] * y[j]
+                s.toFloat()
+            }
+        }
+    }
+
+    /** With an app readout, the logits the NPU computed for the last prompt as well (a diagnosis). */
+    var lastNpuLogits: FloatArray? = null
+        private set
     /**
      * [blocks]: the parts' first blocks and the block count, e.g. 0, 7, 15, 23, 32. [contexts]: the cache lengths
      * the file has a signature for, `chunk_<T>` (or one, `chunk`); the attention's cost grows with the cache, so a
@@ -124,6 +148,7 @@ class Engine private constructor(
             }
             val outs = buildList {
                 add(if (i == parts.lastIndex) "logits" else "hidden")
+                if (i == parts.lastIndex && readout != null) add("row")
                 if (chunked != null) addAll(listOf("k_new", "v_new"))
             }
             Buffers(ins.associateWith { m.createInputBuffer(it, sig) }, outs.associateWith { m.createOutputBuffer(it, sig) })
@@ -192,7 +217,13 @@ class Engine private constructor(
                 }
             }
             if (write) bufferLang[sig] = lang
-            if (last) logits = bufs.last().outputs.getValue("logits").readFloat()
+            if (last) {
+                logits = bufs.last().outputs.getValue("logits").readFloat()
+                if (readout != null) {
+                    lastNpuLogits = logits
+                    logits = readout.logits(bufs.last().outputs.getValue("row").readFloat())
+                }
+            }
         }
         return logits
     }
@@ -337,8 +368,12 @@ class Engine private constructor(
                     }
                 }
             } ?: emptyList()
+            val readout = v.optJSONObject("readout")?.let { r ->
+                Readout(readFloats(File(dir, r.getString("norm"))), readFloats(File(dir, r.getString("head"))),
+                        r.getDouble("eps"))
+            }
             return Engine(parts, if (npu) Accelerator.NPU else Accelerator.CPU, tokenizer, calibration, buckets, prefixes,
-                          meta.optInt("pad_id", 2), chunked, inputQuant)
+                          meta.optInt("pad_id", 2), chunked, inputQuant, readout)
         }
 
         /** A file of little-endian float32. */

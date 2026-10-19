@@ -54,7 +54,9 @@ class DeviceCheck {
                     it.put("tokens", ids.size).put("ms", ms)
                     // written by hand: JSONObject.toString() returns null for NaN, which a broken GPU run gives
                     val row = it.toString()
-                    w.write(row.dropLast(1) + ", \"logits\": [" + logits.take(k).joinToString(", ") + "]}")
+                    // an app readout: the NPU's own logits too, for comparison
+                    val npu = e.lastNpuLogits?.let { l -> ", \"npu_logits\": [" + l.take(k).joinToString(", ") + "]" } ?: ""
+                    w.write(row.dropLast(1) + ", \"logits\": [" + logits.take(k).joinToString(", ") + "]" + npu + "}")
                     w.newLine()
                     if ((i + 1) % 50 == 0) Log.i(TAG, "${i + 1} items, ${total / (i + 1)} ms/item")
                 }
