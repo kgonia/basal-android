@@ -25,6 +25,9 @@ import kotlin.math.abs
  * tokens at a time through a cache of T positions per block, which starts with the prefix's keys and values
  * (shipped as files, float32 [2, blocks, kv heads, P, head dim]). Each part takes the cache of its own blocks,
  * `pos` (the chunk's first position) and returns the chunk's keys and values, written to the cache at pos.
+ *
+ * A W8A16 file takes its float inputs but tokens and positions (a later part's `hidden`, the caches) as uint16
+ * with a scale and zero point per input ("inputs" per part); the engine quantizes them itself.
  */
 class Engine private constructor(
     private val parts: List<CompiledModel>,
@@ -35,14 +38,57 @@ class Engine private constructor(
     private val prefixes: Map<String, IntArray>,
     private val padId: Int,
     private val chunked: Chunked? = null,
+    private val inputQuant: List<Map<String, Quant>> = emptyList(),
 ) : AutoCloseable {
-    /** [blocks]: the parts' first blocks and the block count, e.g. 0, 7, 15, 23, 32. */
-    class Chunked(val length: Int, val context: Int, val blocks: IntArray, val kvHeads: Int, val headDim: Int,
+    /**
+     * [blocks]: the parts' first blocks and the block count, e.g. 0, 7, 15, 23, 32. [contexts]: the cache lengths
+     * the file has a signature for, `chunk_<T>` (or one, `chunk`); the attention's cost grows with the cache, so a
+     * chunk takes the shortest that holds its position.
+     */
+    class Chunked(val length: Int, val contexts: IntArray, val blocks: IntArray, val kvHeads: Int, val headDim: Int,
                   val prefixKv: Map<String, FloatArray>) {
-        /** Per part the keys and values [blocks, kv heads, context, head dim]. */
-        val k = List(blocks.size - 1) { FloatArray((blocks[it + 1] - blocks[it]) * kvHeads * context * headDim) }
-        val v = List(blocks.size - 1) { FloatArray((blocks[it + 1] - blocks[it]) * kvHeads * context * headDim) }
+        val context = contexts.max()
+        /** Per part the keys and values [blocks, kv heads, context, head dim], as the inputs' uint16 bytes. */
+        val k = List(blocks.size - 1) { ByteArray(2 * (blocks[it + 1] - blocks[it]) * kvHeads * context * headDim) }
+        val v = List(blocks.size - 1) { ByteArray(2 * (blocks[it + 1] - blocks[it]) * kvHeads * context * headDim) }
+
+        fun contextFor(pos: Int) = contexts.sorted().first { it >= pos }
+        fun signature(t: Int) = if (contexts.size == 1) "chunk" else "chunk_$t"
+
+        /** Part [i]'s cache [x] cut to its first [t] positions. */
+        fun cut(x: ByteArray, i: Int, t: Int): ByteArray {
+            if (t == context) return x
+            val row = 2 * headDim
+            val out = ByteArray(2 * (blocks[i + 1] - blocks[i]) * kvHeads * t * headDim)
+            for (bh in 0 until (blocks[i + 1] - blocks[i]) * kvHeads) {
+                System.arraycopy(x, bh * context * row, out, bh * t * row, t * row)
+            }
+            return out
+        }
     }
+
+    /** A 16-bit input: round(x / scale) + zero, as little-endian uint16. */
+    class Quant(private val scale: Float, private val zero: Int) {
+        /** x[from until from + n] into the uint16 elements of [out] from element [at]. */
+        fun put(x: FloatArray, from: Int, n: Int, out: ByteArray, at: Int) {
+            for (j in 0 until n) {
+                val q = (Math.round(x[from + j] / scale) + zero).coerceIn(0, 65535)
+                out[2 * (at + j)] = q.toByte()
+                out[2 * (at + j) + 1] = (q shr 8).toByte()
+            }
+        }
+
+        fun bytes(x: FloatArray) = ByteArray(2 * x.size).also { put(x, 0, x.size, it, 0) }
+    }
+
+    /** A float input of part [i], quantized if the file takes it as uint16. */
+    private fun write(i: Int, name: String, b: TensorBuffer, x: FloatArray) {
+        val q = inputQuant.getOrNull(i)?.get(name)
+        if (q == null) b.writeFloat(x) else b.writeInt8(q.bytes(x))
+    }
+
+    private fun quant(i: Int, name: String) = inputQuant.getOrNull(i)?.get(name)
+        ?: throw IllegalStateException("litert.json gives no uint16 encoding for part ${i + 1}'s $name")
     data class Answer(
         val question: Format2.Question,
         val keys: List<String>,
@@ -84,15 +130,16 @@ class Engine private constructor(
         }
     }
 
+    // the language whose prefix each signature's cache buffers hold; past the prefix they hold rows of an earlier
+    // prompt, which the graph masks (positions from pos on)
+    private val bufferLang = HashMap<String, String>()
+    private var cachedLang: String? = null
+
     /**
      * The code logits of a chunked variant: the chunks cover the tokens after the prefix in steps of C, and the last
      * one is always the prompt's last C tokens, so that no chunk starts past the cache; where it overlaps the one
      * before, the cache rows from pos on are masked and computed again.
      */
-    // the language whose prefix the cache buffers hold; past the prefix they hold rows of an earlier prompt, which
-    // the graph masks (positions from pos on)
-    private var cachedLang: String? = null
-
     private fun chunkedLogits(c: Chunked, lang: String, ids: IntArray, prefixLen: Int): FloatArray {
         val (C, T, d, nkv) = listOf(c.length, c.context, c.headDim, c.kvHeads)
         val all = c.blocks.last()
@@ -101,45 +148,50 @@ class Engine private constructor(
             val pre = c.prefixKv.getValue(lang)
             for (i in parts.indices) {
                 val b0 = c.blocks[i]
+                val (qk, qv) = quant(i, "k_cache") to quant(i, "v_cache")
                 for (b in 0 until c.blocks[i + 1] - b0) for (h in 0 until nkv) {
-                    System.arraycopy(pre, ((b0 + b) * nkv + h) * p * d, c.k[i], (b * nkv + h) * T * d, p * d)
-                    System.arraycopy(pre, (((all + b0 + b) * nkv) + h) * p * d, c.v[i], (b * nkv + h) * T * d, p * d)
+                    qk.put(pre, ((b0 + b) * nkv + h) * p * d, p * d, c.k[i], (b * nkv + h) * T * d)
+                    qv.put(pre, ((all + b0 + b) * nkv + h) * p * d, p * d, c.v[i], (b * nkv + h) * T * d)
                 }
             }
         }
+        cachedLang = lang
         val rest = ids.size - p
         val final = maxOf(0, rest - C)
         val starts = (0 until final step C).toList() + final
-        val bufs = buffersFor("chunk")
         var logits = FloatArray(0)
         for (s in starts) {
             val n = minOf(C, rest - s)
             val pos = p + s
             val last = s == final
+            val t = c.contextFor(pos)
+            val sig = c.signature(t)
+            val bufs = buffersFor(sig)
             bufs[0].inputs.getValue("tokens").writeInt(IntArray(C) { if (it < n) ids[pos + it] else padId })
             bufs.last().inputs.getValue("last").writeInt(intArrayOf(n - 1))
             // the first chunk finds the cache as the previous prompt of the language left it
-            val write = s != starts.first() || lang != cachedLang
+            val write = s != starts.first() || bufferLang[sig] != lang
             for (i in parts.indices) {
                 val b = bufs[i]
-                if (i > 0) b.inputs.getValue("hidden").writeFloat(bufs[i - 1].outputs.getValue("hidden").readFloat())
+                if (i > 0) write(i, "hidden", b.inputs.getValue("hidden"), bufs[i - 1].outputs.getValue("hidden").readFloat())
                 if (write) {
-                    b.inputs.getValue("k_cache").writeFloat(c.k[i])
-                    b.inputs.getValue("v_cache").writeFloat(c.v[i])
+                    b.inputs.getValue("k_cache").writeInt8(c.cut(c.k[i], i, t))
+                    b.inputs.getValue("v_cache").writeInt8(c.cut(c.v[i], i, t))
                 }
                 b.inputs.getValue("pos").writeInt(intArrayOf(pos))
-                parts[i].run(b.inputs, b.outputs, "chunk")
+                parts[i].run(b.inputs, b.outputs, sig)
                 if (last) continue
                 // the chunk's rows into the cache at pos
                 val kn = b.outputs.getValue("k_new").readFloat()
                 val vn = b.outputs.getValue("v_new").readFloat()
+                val (qk, qv) = quant(i, "k_cache") to quant(i, "v_cache")
                 val w = minOf(n, T - pos)
                 for (bh in 0 until (c.blocks[i + 1] - c.blocks[i]) * nkv) {
-                    System.arraycopy(kn, bh * C * d, c.k[i], (bh * T + pos) * d, w * d)
-                    System.arraycopy(vn, bh * C * d, c.v[i], (bh * T + pos) * d, w * d)
+                    qk.put(kn, bh * C * d, w * d, c.k[i], (bh * T + pos) * d)
+                    qv.put(vn, bh * C * d, w * d, c.v[i], (bh * T + pos) * d)
                 }
             }
-            cachedLang = lang
+            if (write) bufferLang[sig] = lang
             if (last) logits = bufs.last().outputs.getValue("logits").readFloat()
         }
         return logits
@@ -164,7 +216,7 @@ class Engine private constructor(
         bufs[0].inputs.getValue("tokens").writeInt(IntArray(len) { if (it < n) ids[prefix.size + it] else padId })
         bufs.last().inputs.getValue("last").writeInt(intArrayOf(n - 1))
         for (i in parts.indices) {
-            if (i > 0) bufs[i].inputs.getValue("hidden").writeFloat(bufs[i - 1].outputs.getValue("hidden").readFloat())
+            if (i > 0) write(i, "hidden", bufs[i].inputs.getValue("hidden"), bufs[i - 1].outputs.getValue("hidden").readFloat())
             parts[i].run(bufs[i].inputs, bufs[i].outputs, sig)
         }
         return bufs.last().outputs.getValue("logits").readFloat()
@@ -248,7 +300,9 @@ class Engine private constructor(
                 ?: emptyList()
             val chunked = v.optJSONObject("chunk")?.let { c ->
                 val kv = c.getJSONObject("prefix_kv")
-                Chunked(c.getInt("length"), c.getInt("context"),
+                val contexts = c.optJSONArray("contexts")?.let { a -> IntArray(a.length()) { a.getInt(it) } }
+                    ?: intArrayOf(c.getInt("context"))
+                Chunked(c.getInt("length"), contexts,
                         c.getJSONArray("blocks").let { a -> IntArray(a.length()) { a.getInt(it) } },
                         c.getInt("kv_heads"), c.getInt("head_dim"),
                         kv.keys().asSequence().associateWith { lang -> readFloats(File(dir, kv.getString(lang))) })
@@ -275,8 +329,16 @@ class Engine private constructor(
                     CompiledModel.create(f.path, options)
                 }
             }
+            val inputQuant = v.optJSONArray("inputs")?.let { a ->
+                (0 until a.length()).map { i ->
+                    val q = a.getJSONObject(i)
+                    q.keys().asSequence().associateWith { n ->
+                        q.getJSONArray(n).let { Quant(it.getDouble(0).toFloat(), it.getInt(1)) }
+                    }
+                }
+            } ?: emptyList()
             return Engine(parts, if (npu) Accelerator.NPU else Accelerator.CPU, tokenizer, calibration, buckets, prefixes,
-                          meta.optInt("pad_id", 2), chunked)
+                          meta.optInt("pad_id", 2), chunked, inputQuant)
         }
 
         /** A file of little-endian float32. */
