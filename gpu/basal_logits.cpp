@@ -2,7 +2,7 @@
 // compares a GGUF on a phone's GPU the same way as a LiteRT variant.
 //
 //   basal-logits -m basal-2.0-mini-Q8_0.gguf -c code_ids.txt -i items_ids.jsonl -o out.jsonl [-n 300] [-ngl 99]
-//                [-t 4] [-ub 512] [-ctx 8192]
+//                [-t 4] [-ub 512] [-ctx 8192] [-fa 0|1]
 //
 // Items carry the prompt's token ids (with <s>), so llama.cpp's tokenizer is not involved. The cache keeps the start
 // a prompt shares with the one before, as the app keeps each language's prompt start: "ms" is the rest of the prefill.
@@ -28,7 +28,7 @@ static void usage() {
 
 int main(int argc, char ** argv) {
     std::string model_path, codes_path, items_path, out_path;
-    int n_items = 0, ngl = 99, threads = 4, ubatch = 512, n_ctx = 8192;
+    int n_items = 0, ngl = 99, threads = 4, ubatch = 512, n_ctx = 8192, fa = 0;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         if (i + 1 >= argc) usage();
@@ -42,6 +42,7 @@ int main(int argc, char ** argv) {
         else if (a == "-t")   threads = atoi(v);
         else if (a == "-ub")  ubatch = atoi(v);
         else if (a == "-ctx") n_ctx = atoi(v);
+        else if (a == "-fa")  fa = atoi(v);
         else usage();
     }
     if (model_path.empty() || codes_path.empty() || items_path.empty() || out_path.empty()) usage();
@@ -66,6 +67,9 @@ int main(int argc, char ** argv) {
     cp.n_threads = threads;
     cp.n_threads_batch = threads;
     cp.no_perf = true;
+    // off by default: with "auto" the cache keeps V untransposed, and where the backend then declines flash attention
+    // (OpenCL on Adreno 7xx) every layer copies V to a contiguous tensor that misses the Adreno KQV kernel
+    cp.flash_attn_type = fa ? LLAMA_FLASH_ATTN_TYPE_ENABLED : LLAMA_FLASH_ATTN_TYPE_DISABLED;
     llama_context * ctx = llama_init_from_model(model, cp);
     if (!ctx) { fprintf(stderr, "cannot create a context\n"); return 1; }
     llama_memory_t mem = llama_get_memory(ctx);

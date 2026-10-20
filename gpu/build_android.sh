@@ -1,9 +1,9 @@
 #!/bin/bash
-# build_android.sh cl|vk <build dir>: basal-logits and llama-bench for arm64 Android with llama.cpp's OpenCL (Adreno
+# build_android.sh cl|vk <build dir> [cmake args]: basal-logits and llama-bench for arm64 Android with llama.cpp's OpenCL (Adreno
 # kernels) or Vulkan backend, both with the CPU backend too (-ngl 0). The OpenCL and Vulkan headers, the OpenCL ICD
 # loader and glslc come from android-deps, as for stable-diffusion.cpp's Android builds.
 set -euo pipefail
-backend=$1 build=$2
+backend=$1 build=$2; shift 2
 LLAMA=${LLAMA:-C:/Users/krzgo/CLionProjects/llama.cpp}
 DEPS=${DEPS:-C:/Users/krzgo/CLionProjects/android-deps}
 NDK=${NDK:-C:/Users/krzgo/AppData/Local/Android/Sdk/ndk/30.0.16248370}
@@ -26,5 +26,5 @@ esac
 "$CMAKE" -G Ninja -S "$here" -B "$build" -DCMAKE_MAKE_PROGRAM="$NINJA" -DLLAMA_DIR=$LLAMA \
     -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
     -DCMAKE_BUILD_TYPE=Release -DGGML_OPENMP=OFF -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+i8mm+fp16 \
-    "${opts[@]}"
+    "${opts[@]}" "$@"
 "$NINJA" -C "$build" -j 16 basal-logits llama-bench
