@@ -17,6 +17,9 @@ import java.io.File
  *       io.github.kgonia.basal.test/androidx.test.runner.AndroidJUnitRunner
  *
  * Output: files/check/<model>_<variant>.jsonl (gate.py compare reads it) and the load time in logcat (tag basal-check).
+ *
+ * -e selftest 1 first runs litert.json's self-test (what the app runs on a chip nobody tested) and logs its result;
+ * -e variant npu-SM8550 on another chip tries that chip's file there.
  */
 @RunWith(AndroidJUnit4::class)
 class DeviceCheck {
@@ -37,6 +40,11 @@ class DeviceCheck {
         val loadMs = (System.nanoTime() - t0) / 1_000_000
         Log.i(TAG, "$modelId $variant: loaded in $loadMs ms")
         engine.use { e ->
+            if (args.getString("selftest") == "1") {
+                val st = System.nanoTime()
+                val failed = e.selfTest(JSONObject(File(base, "models/$modelId/litert.json").readText()))
+                Log.i(TAG, "selftest ${failed ?: "passed"} in ${(System.nanoTime() - st) / 1_000_000} ms")
+            }
             out.bufferedWriter().use { w ->
                 var total = 0L
                 items.forEachIndexed { i, line ->
