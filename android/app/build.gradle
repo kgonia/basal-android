@@ -22,10 +22,23 @@ android {
         buildConfig = true
     }
 
+    signingConfigs {
+        // The releases' key, from ~/.gradle/gradle.properties (basalStoreFile, basalStorePassword, basalKeyAlias,
+        // basalKeyPassword); without them a release build is signed with the debug key.
+        if (project.hasProperty('basalStoreFile')) {
+            release {
+                storeFile = file(project.property('basalStoreFile'))
+                storePassword = project.property('basalStorePassword')
+                keyAlias = project.property('basalKeyAlias')
+                keyPassword = project.property('basalKeyPassword')
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // For sideloading from GitHub Releases; the key is the debug key unless you sign it yourself.
-            signingConfig = signingConfigs.debug
+            // For sideloading from GitHub Releases
+            signingConfig = project.hasProperty('basalStoreFile') ? signingConfigs.release : signingConfigs.debug
             minifyEnabled = true
             shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
