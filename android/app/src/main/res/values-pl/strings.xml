@@ -17,7 +17,7 @@
     <string name="load_failed">Nie udało się załadować modelu: %1$s</string>
     <string name="examples">Przykłady</string>
     <string name="state">Stan: wiadomość, dokument, JSON…</string>
-    <string name="answer_type">Typ odpowiedzi</string>
+    <string name="answer_type">Typ odpowiedzi: %1$s</string>
     <string name="type_choice">Wybór</string>
     <string name="type_noul">Tak/nie</string>
     <string name="type_score">Skala</string>

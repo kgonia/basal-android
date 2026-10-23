@@ -18,7 +18,7 @@
     <string name="load_failed">Could not load the model: %1$s</string>
     <string name="examples">Examples</string>
     <string name="state">State: a message, a document, JSON…</string>
-    <string name="answer_type">Answer type</string>
+    <string name="answer_type">Answer type: %1$s</string>
     <string name="type_choice">Choice</string>
     <string name="type_noul">Yes/no</string>
     <string name="type_score">Score</string>

@@ -1,8 +1,9 @@
 package io.github.kgonia.basal
 
 /**
- * Prefilled requests, from the basal-2.0 model card and in its style, one per answer type in the order of the type row
- * (and one in English). The chip shows the type and [topic]. Options are "key: description" lines.
+ * Prefilled requests, from the basal-2.0 model card and in its style: one per answer type (and one in English), the
+ * templates for a question of that type, whose wording goes with it. The chip shows the type and [topic]. Options are
+ * "key: description" lines.
  */
 data class Example(val topic: String, val state: String, val type: Format2.Type, val instructions: String, val options: String)
 
