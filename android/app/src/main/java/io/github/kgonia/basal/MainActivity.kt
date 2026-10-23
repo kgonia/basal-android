@@ -407,7 +407,7 @@ private fun DownloadDialog(model: CatalogModel, meta: JSONObject, store: ModelSt
                 Text(stringResource(R.string.licence_text, model.source, model.repo))
                 SectionLabel(stringResource(R.string.runs_on))
                 listOfNotNull(npu, ModelStore.CPU).forEach { v ->
-                    val tested = v == ModelStore.CPU || meta.getJSONObject("variants").getJSONObject(v).optBoolean("tested")
+                    val tested = v == ModelStore.CPU || Engine.testedHere(meta, v)
                     Row(Modifier.fillMaxWidth().selectable(selected = variant == v, onClick = { variant = v }),
                         verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = variant == v, onClick = null)
@@ -485,7 +485,7 @@ private fun ModelCard(
             // CPU or this phone's NPU, picked by hand; one not downloaded yet starts downloading
             if (ready && npuVariant != null && !downloading) {
                 SectionLabel(stringResource(R.string.runs_on))
-                val choices = listOf(npuVariant to stringResource(R.string.on_npu_chip, npuVariant.removePrefix("npu-")),
+                val choices = listOf(npuVariant to stringResource(R.string.on_npu_chip, Engine.soc ?: npuVariant.removePrefix("npu-")),
                                      ModelStore.CPU to stringResource(R.string.on_cpu))
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     choices.forEachIndexed { i, (v, label) ->

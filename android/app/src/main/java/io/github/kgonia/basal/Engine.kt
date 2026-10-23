@@ -305,9 +305,21 @@ class Engine private constructor(
         /** The SoC the NPU files are compiled for, e.g. "SM8550"; null before Android 12. */
         val soc: String? get() = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else null
 
-        /** The NPU variant's name for this phone, or null when litert.json has none. */
-        fun npuVariant(meta: JSONObject): String? =
-            soc?.let { "npu-$it" }?.takeIf { meta.getJSONObject("variants").has(it) }
+        /**
+         * The NPU variant for this phone: the one compiled for its chip, else, on another Qualcomm chip, the one
+         * litert.json marks "fallback" (it runs on newer Hexagons too; the self-test on first load decides), else null.
+         */
+        fun npuVariant(meta: JSONObject): String? {
+            val variants = meta.getJSONObject("variants")
+            val own = soc?.let { "npu-$it" } ?: return null
+            if (variants.has(own)) return own
+            if (Build.VERSION.SDK_INT < 31 || Build.SOC_MANUFACTURER != "QTI") return null
+            return variants.keys().asSequence().firstOrNull { it.startsWith("npu-") && variants.getJSONObject(it).optBoolean("fallback") }
+        }
+
+        /** Whether [variant] passed the port check on a phone with this chip. */
+        fun testedHere(meta: JSONObject, variant: String): Boolean =
+            variant == "npu-$soc" && meta.getJSONObject("variants").getJSONObject(variant).optBoolean("tested")
 
         /** A variant's files: name and size in bytes. */
         fun files(meta: JSONObject, variant: String): List<Pair<String, Long>> {

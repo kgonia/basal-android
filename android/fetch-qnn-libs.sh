@@ -19,8 +19,8 @@ fi
 sdk=$("$py" -c "import ai_edge_litert_sdk_qualcomm as s; print(s.get_sdk_path())")
 jni=$here/app/src/main/jniLibs/arm64-v8a
 mkdir -p "$jni" "$here/app/src/main/assets"
-cp "$sdk"/lib/aarch64-android/{libQnnHtp.so,libQnnSystem.so,libQnnHtpV73Stub.so,libQnnHtpV75Stub.so} "$jni/"
-# the Hexagon DSP side: V73 is the Snapdragon 8 Gen 2, V75 the 8 Gen 3
-cp "$sdk"/lib/hexagon-v73/unsigned/libQnnHtpV73Skel.so "$sdk"/lib/hexagon-v75/unsigned/libQnnHtpV75Skel.so "$jni/"
+cp "$sdk"/lib/aarch64-android/{libQnnHtp.so,libQnnSystem.so,libQnnHtpV73Stub.so,libQnnHtpV75Stub.so,libQnnHtpV79Stub.so} "$jni/"
+# the Hexagon DSP side: V73 is the Snapdragon 8 Gen 2, V75 the 8 Gen 3, V79 the 8 Elite (the SM8550 files may run there)
+for v in 73 75 79; do cp "$sdk/lib/hexagon-v$v/unsigned/libQnnHtpV${v}Skel.so" "$jni/"; done
 cp "$sdk/QNN_NOTICE.txt" "$here/app/src/main/assets/QNN_NOTICE.txt"
 ls -la "$jni"
