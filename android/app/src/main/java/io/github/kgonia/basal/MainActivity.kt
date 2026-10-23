@@ -584,8 +584,9 @@ private fun AnswerCard(a: Engine.Answer) {
                             Text(name, style = MaterialTheme.typography.bodyMedium, color = scheme.onPrimaryContainer,
                                  fontWeight = if (top) FontWeight.SemiBold else FontWeight.Normal,
                                  maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            Text(pct(p), style = MaterialTheme.typography.bodyMedium, color = scheme.onPrimaryContainer,
-                                 fontFamily = FontFamily.Monospace)
+                            // tabular digits keep the column aligned; a monospace font spaced out the decimal comma
+                            Text(pct(p), style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
+                                 color = scheme.onPrimaryContainer)
                         }
                         LinearProgressIndicator(
                             progress = { shown },
