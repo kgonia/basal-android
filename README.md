@@ -8,7 +8,7 @@ each one, on the phone and offline.
   (1.5B), with its port check and phone timings.
 - **App:** the APK is attached to each [release](https://github.com/kgonia/basal-android/releases). It downloads the
   model (Wi-Fi recommended) and runs it with Google LiteRT: on the NPU of a Snapdragon 8 Gen 2 or 8 Gen 3 (e.g. the
-  Galaxy S23 and S24 series), or on the CPU of any arm64 phone.
+  Galaxy S23 series and the S24 Ultra), or on the CPU of any arm64 phone.
 
 Not affiliated with or endorsed by the basal or Bielik authors. The models are theirs (Apache-2.0); this repository
 only runs them.
@@ -25,13 +25,14 @@ On a Galaxy S23 Ultra, NPU, in the app's Polish UI: the model ready (the first l
 
 ## Results
 
-basal-2.0-mini on a Galaxy S23 Ultra, against the source model in bf16, with the bars the basal author publishes for
+basal-2.0-mini on a Galaxy S23 Ultra and S24 Ultra, against the source model in bf16, with the bars the basal author publishes for
 ports (agreement on questions with 2–10 options ≥ 0.916, accuracy diff ≥ −0.01):
 
 | variant | agreement (2–10 options) | accuracy diff | median per question |
 |---|---|---|---|
 | CPU, dynamic int8 | 0.961 | +0.003 | 1.06 s |
 | NPU (SM8550), W8A16 | 0.992 | −0.003 | 0.88 s |
+| NPU (SM8650, S24 Ultra), W8A16 | 0.992 | −0.003 | 1.16 s |
 
 The full check is on the model card.
 
