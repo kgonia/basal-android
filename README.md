@@ -59,7 +59,6 @@ tokens only.
 | `android/` | the app: `Tokenizer.kt` (the BPE tokenizer), `Format2.kt` (prompts and calibration), `Engine.kt` (LiteRT), `MainActivity.kt` (UI), `DeviceCheck.kt` (the port check on a phone) |
 | `gpu/` | an experiment, not in the app: the author's GGUFs on the phone's GPU with llama.cpp (OpenCL), and GPU microbenchmarks |
 
-
 ## Build the app
 
 JDK 21 and the Android SDK (compileSdk 36). The NPU needs Qualcomm's QNN runtime in the APK, which this repository
