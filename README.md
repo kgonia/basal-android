@@ -7,11 +7,21 @@ each one, on the phone and offline.
 - **Model on Hugging Face:** [SearchingMan/basal-2.0-mini-LiteRT](https://huggingface.co/SearchingMan/basal-2.0-mini-LiteRT)
   (1.5B), with its port check and phone timings.
 - **App:** the APK is attached to each [release](https://github.com/kgonia/basal-android/releases). It downloads the
-  model (Wi-Fi recommended) and runs it with Google LiteRT: on the NPU of a Snapdragon 8 Gen 2 (e.g. the Galaxy S23,
-  S23+ and S23 Ultra), or on the CPU of any arm64 phone.
+  model (Wi-Fi recommended) and runs it with Google LiteRT: on the NPU of a Snapdragon 8 Gen 2 or 8 Gen 3 (e.g. the
+  Galaxy S23 and S24 series), or on the CPU of any arm64 phone.
 
 Not affiliated with or endorsed by the basal or Bielik authors. The models are theirs (Apache-2.0); this repository
 only runs them.
+
+<p>
+<img src="docs/screenshots/ready.png" width="180" alt="Model ready on the NPU, with the CPU/NPU switch">
+<img src="docs/screenshots/download.png" width="180" alt="Download dialog: licence note and the variant for this phone">
+<img src="docs/screenshots/answer-choice.png" width="180" alt="Choice: which department">
+<img src="docs/screenshots/answer-score.png" width="180" alt="Score: how urgent">
+<img src="docs/screenshots/answer-labels.png" width="180" alt="Labels: which topics">
+</p>
+
+On a Galaxy S23 Ultra, NPU, in the app's Polish UI: the model ready (the first load, 29.7 s, includes the NPU self-test; later loads take about 3 s), the download dialog, and the answers to three of the built-in examples (0.4 s for about 100 tokens).
 
 ## Results
 
