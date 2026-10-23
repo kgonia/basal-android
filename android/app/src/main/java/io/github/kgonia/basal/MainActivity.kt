@@ -342,7 +342,7 @@ private fun App() {
                                 options.clear(); options.addAll(e.options.lines().filter { it.isNotBlank() })
                                 answer = null
                             },
-                            label = { Text(e.title) },
+                            label = { Text(stringResource(typeLabel(e.type)) + ": " + e.topic) },
                             leadingIcon = { Icon(Icons.Outlined.Lightbulb, null, Modifier.size(18.dp)) },
                         )
                     }
@@ -351,7 +351,19 @@ private fun App() {
 
             QuestionCard(
                 state = state, onState = { state = it },
-                type = type, onType = { type = it; answer = null },
+                type = type,
+                onType = { t ->
+                    if (t != type) {
+                        // keep the options that fit the new type; a list too short for it gets its example's
+                        val texts = options.map { it.trim() }.filter { it.isNotEmpty() }
+                            .map { if (t == Format2.Type.SCORE) parseOptions(it).second.single() ?: it else it }
+                        val fill = if (t != Format2.Type.NOUL && texts.size < 2)
+                            EXAMPLES.first { it.type == t }.options.lines().filter { it.isNotBlank() } else texts
+                        options.clear(); options.addAll(fill)
+                        type = t
+                        answer = null
+                    }
+                },
                 instructions = instructions, onInstructions = { instructions = it },
                 options = options, hideKeys = hideKeys, onHideKeys = { hideKeys = it },
             )
@@ -511,17 +523,16 @@ private fun QuestionCard(
                 minLines = 3, maxLines = 10, shape = MaterialTheme.shapes.medium,
                 trailingIcon = if (state.isNotEmpty()) ({ IconButton(onClick = { onState("") }) { Icon(Icons.Outlined.Close, null) } }) else null,
             )
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                val types = listOf(Format2.Type.CHOICE to R.string.type_choice, Format2.Type.NOUL to R.string.type_noul,
-                                   Format2.Type.SCORE to R.string.type_score, Format2.Type.MULTI to R.string.type_multi)
-                types.forEachIndexed { i, (t, label) ->
-                    SegmentedButton(selected = type == t, onClick = { onType(t) },
-                        shape = SegmentedButtonDefaults.itemShape(i, types.size), icon = {},
-                        label = { Text(stringResource(label), maxLines = 1, style = MaterialTheme.typography.labelMedium) })
-                }
-            }
             OutlinedTextField(instructions, onInstructions, Modifier.fillMaxWidth(),
                 label = { Text(stringResource(R.string.question)) }, shape = MaterialTheme.shapes.medium)
+            SectionLabel(stringResource(R.string.answer_type))
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                TYPES.forEachIndexed { i, t ->
+                    SegmentedButton(selected = type == t, onClick = { onType(t) },
+                        shape = SegmentedButtonDefaults.itemShape(i, TYPES.size), icon = {},
+                        label = { Text(stringResource(typeLabel(t)), maxLines = 1, style = MaterialTheme.typography.labelMedium) })
+                }
+            }
             if (type != Format2.Type.NOUL) {
                 HorizontalDivider()
                 SectionLabel(stringResource(if (type == Format2.Type.SCORE) R.string.levels else R.string.options))
@@ -611,6 +622,16 @@ private fun AnswerCard(a: Engine.Answer) {
             }
         }
     }
+}
+
+/** The answer types in the order of the type row and the examples. */
+private val TYPES = listOf(Format2.Type.CHOICE, Format2.Type.NOUL, Format2.Type.SCORE, Format2.Type.MULTI)
+
+private fun typeLabel(t: Format2.Type) = when (t) {
+    Format2.Type.CHOICE -> R.string.type_choice
+    Format2.Type.NOUL -> R.string.type_noul
+    Format2.Type.SCORE -> R.string.type_score
+    Format2.Type.MULTI -> R.string.type_multi
 }
 
 private fun pct(p: Double) = String.format(Locale.getDefault(), "%.1f%%", p * 100)

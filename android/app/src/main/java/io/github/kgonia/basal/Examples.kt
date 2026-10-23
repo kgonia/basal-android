@@ -1,18 +1,21 @@
 package io.github.kgonia.basal
 
-/** Prefilled requests, from the basal-2.0 model card and in its style. Options are "key: description" lines. */
-data class Example(val title: String, val state: String, val type: Format2.Type, val instructions: String, val options: String)
+/**
+ * Prefilled requests, from the basal-2.0 model card and in its style, one per answer type in the order of the type row
+ * (and one in English). The chip shows the type and [topic]. Options are "key: description" lines.
+ */
+data class Example(val topic: String, val state: String, val type: Format2.Type, val instructions: String, val options: String)
 
 private const val LOGIN = "Klient: od wczoraj nie mogę zalogować się do bankowości internetowej, system pokazuje błąd hasła."
 private const val LAPTOP = "Klient: Zamówiłem laptopa trzy tygodnie temu, przyszedł z pękniętym ekranem. Kurier zostawił paczkę " +
     "pod drzwiami. Chcę zwrotu pieniędzy, nie naprawy."
 
 val EXAMPLES = listOf(
-    Example("Routing", LOGIN, Format2.Type.CHOICE, "Do którego działu skierować zgłoszenie?",
+    Example("dział", LOGIN, Format2.Type.CHOICE, "Do którego działu skierować zgłoszenie?",
         "cards: Reklamacje kart\nonline: Wsparcie bankowości elektronicznej\nloans: Kredyty"),
-    Example("Tak / nie", LOGIN, Format2.Type.NOUL, "Czy klient nie może korzystać z usługi?", ""),
-    Example("Pilność", LAPTOP, Format2.Type.SCORE, "Jak pilne jest zgłoszenie?", "niska\nśrednia\nwysoka\nkrytyczna"),
-    Example("Tematy", LAPTOP, Format2.Type.MULTI, "Których tematów dotyczy wiadomość?",
+    Example("dostęp", LOGIN, Format2.Type.NOUL, "Czy klient nie może korzystać z usługi?", ""),
+    Example("pilność", LAPTOP, Format2.Type.SCORE, "Jak pilne jest zgłoszenie?", "niska\nśrednia\nwysoka\nkrytyczna"),
+    Example("tematy", LAPTOP, Format2.Type.MULTI, "Których tematów dotyczy wiadomość?",
         "damage: uszkodzony towar\nrefund: zwrot pieniędzy\nrepair: naprawa\ninvoice: faktura"),
     Example("English", "Customer: I was charged twice for my March subscription. Please fix it today, I need the money back.",
         Format2.Type.CHOICE, "What does the customer want?",
