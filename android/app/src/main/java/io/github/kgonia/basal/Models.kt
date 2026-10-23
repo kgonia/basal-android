@@ -15,7 +15,7 @@ data class CatalogModel(val id: String, val repo: String, val label: String, val
 
 val CATALOG = listOf(
     CatalogModel("basal-2.0-mini", "SearchingMan/basal-2.0-mini-LiteRT", "mini · 1.5B", "Remek/basal-2.0-mini"),
-    CatalogModel("basal-2.0-4.5B", "SearchingMan/basal-2.0-4.5B-LiteRT", "4.5B", "Remek/basal-2.0-4.5B"),
+    // not published yet: CatalogModel("basal-2.0-4.5B", "SearchingMan/basal-2.0-4.5B-LiteRT", "4.5B", "Remek/basal-2.0-4.5B"),
 )
 
 /**
