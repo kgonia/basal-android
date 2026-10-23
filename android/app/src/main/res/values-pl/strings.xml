@@ -43,6 +43,7 @@
     <string name="about_text">basal LiteRT %1$s\n\nNieoficjalna aplikacja na Androida dla modeli decyzyjnych basal-2.0, uruchamianych przez Google LiteRT na procesorze telefonu albo, na układach Snapdragon z przygotowanymi plikami, na jego NPU. Nic, co wpiszesz, nie opuszcza telefonu.\n\nModele: basal-2.0, autor Remigiusz Kinas (github.com/rkinas/basal), Apache-2.0, dostrojone z Bielika v3 (SpeakLeash, ACK Cyfronet AGH), Apache-2.0. Aplikacja nie jest powiązana z ich autorami ani przez nich zatwierdzona.\n\nŚrodowisko: LiteRT (Google), Apache-2.0. Aplikacja: Jetpack Compose, AndroidX, Kotlin, Apache-2.0.\n\nKod źródłowy i skrypty konwersji: github.com/kgonia/basal-android</string>
     <string name="on_cpu">CPU</string>
     <string name="on_npu">NPU</string>
+    <string name="on_npu_chip">NPU (%1$s)</string>
     <string name="runs_on">Uruchamiaj na</string>
     <string name="variant_cpu">Procesor (CPU): każdy telefon</string>
     <string name="variant_npu">NPU tego telefonu (%1$s): szybciej, mniej baterii</string>

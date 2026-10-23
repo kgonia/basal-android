@@ -136,6 +136,8 @@ private fun App() {
     var loadedInfo by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var offer by remember { mutableStateOf<JSONObject?>(null) }
+    // this phone's NPU variant of the selected model, if its litert.json (downloaded) has one
+    val npuVariant = remember(modelId, ready) { store.manifest(model)?.let { Engine.npuVariant(it) } }
     var showAbout by remember { mutableStateOf(false) }
 
     val first = EXAMPLES[0]
@@ -288,6 +290,24 @@ private fun App() {
                 modelId = modelId,
                 onModel = { modelId = it; answer = null },
                 ready = ready[modelId] != null,
+                variant = ready[modelId],
+                npuVariant = npuVariant,
+                onVariant = { v ->
+                    store.choose(model, v)
+                    val meta = store.manifest(model)
+                    if (meta != null && !store.complete(model, meta, v)) {
+                        busy = true
+                        scope.launch {
+                            withContext(Dispatchers.IO) { runCatching { store.startDownload(model, meta, v) } }
+                                .onSuccess { ids -> if (ids.isNotEmpty()) Session.downloads[modelId] = ids }
+                                .onFailure { say(it.message ?: it.toString()) }
+                            busy = false
+                        }
+                    } else {
+                        ready = ready + (modelId to store.readyVariant(model))
+                        answer = null
+                    }
+                },
                 downloading = Session.downloads[modelId] != null,
                 progress = progress,
                 loadedInfo = loadedInfo.takeIf { Session.engineModel == modelId },
@@ -346,6 +366,7 @@ private fun App() {
     offer?.let { meta ->
         DownloadDialog(model, meta, store, onDismiss = { offer = null }) { variant ->
             offer = null
+            store.choose(model, variant)
             busy = true
             scope.launch {
                 withContext(Dispatchers.IO) { runCatching { store.startDownload(model, meta, variant) } }
@@ -415,7 +436,8 @@ private fun SectionLabel(text: String) {
 
 @Composable
 private fun ModelCard(
-    modelId: String, onModel: (String) -> Unit, ready: Boolean, downloading: Boolean, progress: ModelStore.Progress?,
+    modelId: String, onModel: (String) -> Unit, ready: Boolean, variant: String?, npuVariant: String?,
+    onVariant: (String) -> Unit, downloading: Boolean, progress: ModelStore.Progress?,
     loadedInfo: String?, onDownload: () -> Unit, onCancel: () -> Unit, onDelete: () -> Unit, enabled: Boolean,
 ) {
     ElevatedCard(Modifier.fillMaxWidth()) {
@@ -458,6 +480,18 @@ private fun ModelCard(
                              color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(onClick = onDelete, enabled = enabled) { Icon(Icons.Outlined.Delete, stringResource(R.string.delete)) }
+                }
+            }
+            // CPU or this phone's NPU, picked by hand; one not downloaded yet starts downloading
+            if (ready && npuVariant != null && !downloading) {
+                SectionLabel(stringResource(R.string.runs_on))
+                val choices = listOf(npuVariant to stringResource(R.string.on_npu_chip, npuVariant.removePrefix("npu-")),
+                                     ModelStore.CPU to stringResource(R.string.on_cpu))
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    choices.forEachIndexed { i, (v, label) ->
+                        SegmentedButton(selected = variant == v, onClick = { if (variant != v) onVariant(v) }, enabled = enabled,
+                            shape = SegmentedButtonDefaults.itemShape(i, choices.size), label = { Text(label) })
+                    }
                 }
             }
         }

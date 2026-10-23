@@ -44,6 +44,7 @@
     <string name="about_text">basal LiteRT %1$s\n\nAn unofficial Android app for the basal-2.0 typed-decision models, run with Google LiteRT on the phone\'s CPU or, on Snapdragon chips with compiled files, its NPU. Nothing you type leaves the phone.\n\nModels: basal-2.0 by Remigiusz Kinas (github.com/rkinas/basal), Apache-2.0, fine-tuned from Bielik v3 (SpeakLeash, ACK Cyfronet AGH), Apache-2.0. Not affiliated with or endorsed by their authors.\n\nRuntime: LiteRT (Google), Apache-2.0. App: Jetpack Compose, AndroidX, Kotlin, Apache-2.0.\n\nSource code and the conversion scripts: github.com/kgonia/basal-android</string>
     <string name="on_cpu">CPU</string>
     <string name="on_npu">NPU</string>
+    <string name="on_npu_chip">NPU (%1$s)</string>
     <string name="runs_on">Runs on</string>
     <string name="variant_cpu">Processor (CPU): every phone</string>
     <string name="variant_npu">NPU of this phone (%1$s): faster, less battery</string>

@@ -32,21 +32,31 @@ class ModelStore(private val context: Context) {
     fun manifest(m: CatalogModel): JSONObject? =
         File(dir(m), "litert.json").takeIf { it.isFile }?.let { runCatching { JSONObject(it.readText()) }.getOrNull() }
 
-    private fun complete(m: CatalogModel, meta: JSONObject, variant: String) =
+    fun complete(m: CatalogModel, meta: JSONObject, variant: String) =
         meta.getJSONObject("variants").has(variant) &&
             (Engine.files(meta, variant) + COMMON.map { it to -1L }).all { (name, size) ->
                 File(dir(m), name).let { it.isFile && (size < 0 || it.length() == size) }
             }
 
-    /** The variant to run: this phone's NPU one if downloaded and not failed its self-test, else the CPU one. */
+    /**
+     * The variant to run: the one picked with [choose] if downloaded, else this phone's NPU one if downloaded and not
+     * failed its self-test, else the CPU one.
+     */
     fun readyVariant(m: CatalogModel): String? {
         val meta = manifest(m) ?: return null
-        val npu = Engine.npuVariant(meta)
-        return when {
-            npu != null && !npuFailed(m) && complete(m, meta, npu) -> npu
-            complete(m, meta, CPU) -> CPU
-            else -> null
-        }
+        val npu = Engine.npuVariant(meta)?.takeUnless { npuFailed(m) }
+        val order = if (chosen(m) == CPU) listOf(CPU, npu) else listOf(npu, CPU)
+        return order.filterNotNull().firstOrNull { complete(m, meta, it) }
+    }
+
+    /** The variant picked by hand, null until then. */
+    fun chosen(m: CatalogModel): String? = prefs.getString("variant.${m.id}", null)
+
+    /** Picks the variant to run; picking the NPU again tries it again after a failed self-test. */
+    fun choose(m: CatalogModel, variant: String) {
+        val e = prefs.edit().putString("variant.${m.id}", variant)
+        if (variant != CPU) e.remove("npu_failed.${m.id}")
+        e.apply()
     }
 
     /** An NPU variant that loaded but failed its self-test is not used again for this model. */
@@ -128,7 +138,7 @@ class ModelStore(private val context: Context) {
     fun delete(m: CatalogModel) {
         dir(m).deleteRecursively()
         context.cacheDir.listFiles { f -> f.name.endsWith(".xnnpack") && f.name.startsWith(m.id) }?.forEach { it.delete() }
-        prefs.edit().remove("npu_failed.${m.id}").apply()
+        prefs.edit().remove("npu_failed.${m.id}").remove("variant.${m.id}").apply()
     }
 
     companion object {
